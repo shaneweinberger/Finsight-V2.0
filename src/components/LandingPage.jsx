@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Check, Star, ArrowRight, Menu, X, Brain, Shield, Zap, LayoutDashboard } from "lucide-react";
+import { useNavigate } from 'react-router-dom';
 
 export default function LandingPage() {
     const [isScrolled, setIsScrolled] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const navigate = useNavigate();
 
     useEffect(() => {
         const handleScroll = () => {
@@ -47,10 +49,16 @@ export default function LandingPage() {
 
                     {/* Right Area */}
                     <div className="hidden md:flex items-center gap-4">
-                        <button className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
+                        <button
+                            onClick={() => navigate('/auth')}
+                            className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+                        >
                             Log In
                         </button>
-                        <button className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all duration-300 shadow-md hover:shadow-xl hover:-translate-y-0.5">
+                        <button
+                            onClick={() => navigate('/auth')}
+                            className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all duration-300 shadow-md hover:shadow-xl hover:-translate-y-0.5"
+                        >
                             Get Started
                         </button>
                     </div>
@@ -71,8 +79,8 @@ export default function LandingPage() {
                         <a href="#how-it-works" className="text-slate-600 hover:text-slate-900 font-medium p-2">How it Works</a>
                         <a href="#security" className="text-slate-600 hover:text-slate-900 font-medium p-2">Security</a>
                         <hr className="border-slate-100" />
-                        <button className="w-full text-center py-2 font-medium text-slate-600">Log In</button>
-                        <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium">Get Started</button>
+                        <button onClick={() => navigate('/auth')} className="w-full text-center py-2 font-medium text-slate-600">Log In</button>
+                        <button onClick={() => navigate('/auth')} className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium">Get Started</button>
                     </div>
                 )}
             </nav>
@@ -93,7 +101,10 @@ export default function LandingPage() {
 
                     {/* CTA Buttons */}
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-fade-in-up delay-200">
-                        <button className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-lg font-medium px-8 py-4 rounded-full transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1">
+                        <button
+                            onClick={() => navigate('/auth')}
+                            className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-lg font-medium px-8 py-4 rounded-full transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1"
+                        >
                             Start Tracking
                         </button>
                         <button className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 text-lg font-medium px-8 py-4 rounded-full transition-all duration-300 shadow-sm hover:shadow-md">
