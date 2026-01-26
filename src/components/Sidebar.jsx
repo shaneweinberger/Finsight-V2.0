@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, PieChart, Upload, Tags, Zap, LogOut, ChevronUp, ChevronDown, User, Settings, AlertTriangle, PanelLeft } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { theme } from '../theme';
+import peanutLove from '../assets/peanut_love.jpg';
 
 // Helper component for hover state
 function SidebarLink({ item, isCollapsed }) {
@@ -55,7 +56,30 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isProfileHovered, setIsProfileHovered] = useState(false);
     const [isToggleHovered, setIsToggleHovered] = useState(false);
+    const [showSecretModal, setShowSecretModal] = useState(false);
+    const [logoClickCount, setLogoClickCount] = useState(0);
     const navigate = useNavigate();
+
+    // Reset click count if no clicks for 2 seconds
+    React.useEffect(() => {
+        let timer;
+        if (logoClickCount > 0) {
+            timer = setTimeout(() => setLogoClickCount(0), 1000);
+        }
+        return () => clearTimeout(timer);
+    }, [logoClickCount]);
+
+    const handleLogoClick = () => {
+        if (user?.email === 'emmarlevine@gmail.com') {
+            const newCount = logoClickCount + 1;
+            setLogoClickCount(newCount);
+
+            if (newCount === 5) {
+                setShowSecretModal(true);
+                setLogoClickCount(0);
+            }
+        }
+    };
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
@@ -84,7 +108,11 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                 style={{ borderColor: theme.sidebar.borderColor }}
             >
                 {!isCollapsed && (
-                    <div className="flex items-center gap-2 font-bold text-xl animate-fade-in-up whitespace-nowrap overflow-hidden" style={{ color: theme.sidebar.logoText }}>
+                    <div
+                        onClick={handleLogoClick}
+                        className={`flex items-center gap-2 font-bold text-xl animate-fade-in-up whitespace-nowrap overflow-hidden ${user?.email === 'emmarlevine@gmail.com' ? 'cursor-pointer' : ''}`}
+                        style={{ color: theme.sidebar.logoText }}
+                    >
                         <div className="w-8 h-8 rounded-lg bg-white text-slate-900 flex items-center justify-center shrink-0">F</div>
                         FinSight
                     </div>
@@ -167,6 +195,32 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                     )}
                 </button>
             </div>
+
+            {/* Secret Modal */}
+            {showSecretModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl relative flex flex-col items-center text-center">
+
+                        <button
+                            onClick={() => setShowSecretModal(false)}
+                            className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+
+                        <div className="mb-6 rounded-xl overflow-hidden shadow-lg">
+                            <img src={peanutLove} alt="Peanuts in love" className="w-full h-auto object-cover" />
+                        </div>
+
+                        <h3 className="text-2xl font-bold text-gray-800 mb-2 font-serif">
+                            To the moon and back, forever. ❤️
+                        </h3>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
