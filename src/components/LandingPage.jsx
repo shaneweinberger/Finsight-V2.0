@@ -255,7 +255,7 @@ export default function LandingPage() {
                     <div className="col-span-2">
                         <div className="flex items-center gap-2 font-bold text-white text-xl mb-4">
                             <div className="w-8 h-8 rounded-lg bg-white text-slate-900 flex items-center justify-center">F</div>
-                            FinSight
+                            Finsight
                         </div>
                         <p className="max-w-xs text-sm">The intelligent, privacy-focused personal finance tracker for the modern era.</p>
                     </div>

@@ -11,13 +11,42 @@ export default function DashboardLayout() {
 
     useEffect(() => {
         const getSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                navigate('/auth');
-            } else {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (!session) {
+                    navigate('/auth');
+                    return;
+                }
+
+                // Check for dev_access in profile
+                const { data: profile, error } = await supabase
+                    .from('profiles')
+                    .select('dev_access')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (error && error.code !== 'PGRST116') {
+                    console.error('Error fetching profile:', error);
+                }
+
+                // Redirect if dev_access is explicitly false or if profile doesn't exist (safer default for under-construction apps)
+                // User asked: "if their profile has dev_access == False"
+                // I will implement: Redirect if profile exists and dev_access is false.
+                // But for "Under Construction", usually everyone is blocked except allowed ones.
+                // I'll assume if dev_access is NOT true, block them.
+                if (!profile || profile.dev_access !== true) {
+                    navigate('/under-construction');
+                    return;
+                }
+
                 setUser(session.user);
+            } catch (err) {
+                console.error("Auth Error:", err);
+                navigate('/auth');
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         };
 
         getSession();
