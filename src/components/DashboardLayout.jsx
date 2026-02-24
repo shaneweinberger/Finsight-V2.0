@@ -7,6 +7,18 @@ export default function DashboardLayout() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isCollapsed, setIsCollapsed] = useState(false);
+
+    // Persistent date range state
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30); // Default to last 30 days
+        return d.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        return d.toISOString().split('T')[0];
+    });
+
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -61,7 +73,7 @@ export default function DashboardLayout() {
 
             {/* Main Content Area */}
             <div className={`flex-1 p-8 overflow-y-auto h-screen transition-all duration-300 ${isCollapsed ? 'ml-20' : 'ml-64'}`}>
-                <Outlet />
+                <Outlet context={{ startDate, setStartDate, endDate, setEndDate }} />
             </div>
         </div>
     );

@@ -30,12 +30,21 @@ import {
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
+import TransactionTable from './TransactionTable';
+
 export default function Overview() {
+    // ... items stay same ...
     const [transactions, setTransactions] = useState([]);
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ description: '', category: '' });
+
+    const onEditChange = (field, value) => {
+        setEditForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    // ... fetchData, fetchTransactions, fetchCategories stay same ...
 
     useEffect(() => {
         fetchData();
@@ -219,89 +228,17 @@ export default function Overview() {
                             View All <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                         </button>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead>
-                                <tr className="bg-slate-50/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                                    <th className="px-6 py-4">Date</th>
-                                    <th className="px-6 py-4">Description</th>
-                                    <th className="px-6 py-4">Type</th>
-                                    <th className="px-6 py-4">Category</th>
-                                    <th className="px-6 py-4 text-right">Amount</th>
-                                    <th className="px-6 py-4"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {transactions.slice(0, 10).map((tx) => (
-                                    <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
-                                        <td className="px-6 py-4 text-sm text-slate-600">
-                                            {new Date(tx.date).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {editingId === tx.id ? (
-                                                <input
-                                                    className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none"
-                                                    value={editForm.description}
-                                                    onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                                                />
-                                            ) : (
-                                                <span className="text-sm font-medium text-slate-900 truncate block max-w-[200px]">
-                                                    {tx.description}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${tx.transaction_method === 'credit' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'
-                                                }`}>
-                                                {tx.transaction_method || tx.transaction_type}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {editingId === tx.id ? (
-                                                <select
-                                                    className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none bg-white"
-                                                    value={editForm.category}
-                                                    onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
-                                                >
-                                                    <option value="">Uncategorized</option>
-                                                    {categories.map(cat => (
-                                                        <option key={cat} value={cat}>{cat}</option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
-                                                    {tx.category || 'Uncategorized'}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className={`px-6 py-4 text-sm font-bold text-right ${parseFloat(tx.amount) > 0 ? 'text-emerald-600' : 'text-slate-900'
-                                            }`}>
-                                            {parseFloat(tx.amount) > 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            {editingId === tx.id ? (
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button onClick={() => handleEditSave(tx.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded">
-                                                        <Check size={16} />
-                                                    </button>
-                                                    <button onClick={handleEditCancel} className="p-1 text-rose-600 hover:bg-rose-50 rounded">
-                                                        <X size={16} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <button
-                                                    onClick={() => handleEditStart(tx)}
-                                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                                                >
-                                                    <Edit2 size={14} />
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <TransactionTable
+                        transactions={transactions}
+                        categories={categories}
+                        editingId={editingId}
+                        editForm={editForm}
+                        onEditStart={handleEditStart}
+                        onEditSave={handleEditSave}
+                        onEditCancel={handleEditCancel}
+                        onEditChange={onEditChange}
+                        limit={10}
+                    />
                 </div>
             </div>
         </div>
