@@ -32,13 +32,20 @@ const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 export default function Overview() {
     const [transactions, setTransactions] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ description: '', category: '' });
 
     useEffect(() => {
-        fetchTransactions();
+        fetchData();
     }, []);
+
+    const fetchData = async () => {
+        setLoading(true);
+        await Promise.all([fetchTransactions(), fetchCategories()]);
+        setLoading(false);
+    };
 
     const fetchTransactions = async () => {
         try {
@@ -51,8 +58,23 @@ export default function Overview() {
             setTransactions(data || []);
         } catch (err) {
             console.error('Error fetching transactions:', err);
-        } finally {
-            setLoading(false);
+        }
+    };
+
+    const fetchCategories = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabase
+                .from('user_categories')
+                .select('name')
+                .eq('user_id', user.id);
+
+            if (error) throw error;
+            setCategories(data?.map(c => c.name) || []);
+        } catch (err) {
+            console.error('Error fetching categories:', err);
         }
     };
 
@@ -99,8 +121,9 @@ export default function Overview() {
         return acc;
     }, []).sort((a, b) => b.value - a.value);
 
+    // Filter logic updated: Spending = Negative, Income = Positive
     const totalSpent = transactions
-        .filter(t => t.transaction_type === 'debit' || (t.transaction_type === 'credit' && parseFloat(t.amount) > 0))
+        .filter(t => parseFloat(t.amount) < 0)
         .reduce((sum, t) => sum + Math.abs(parseFloat(t.amount)), 0);
 
     const avgTransaction = transactions.length > 0 ? totalSpent / transactions.length : 0;
@@ -202,13 +225,14 @@ export default function Overview() {
                                 <tr className="bg-slate-50/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                                     <th className="px-6 py-4">Date</th>
                                     <th className="px-6 py-4">Description</th>
+                                    <th className="px-6 py-4">Type</th>
                                     <th className="px-6 py-4">Category</th>
                                     <th className="px-6 py-4 text-right">Amount</th>
                                     <th className="px-6 py-4"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {transactions.slice(0, 8).map((tx) => (
+                                {transactions.slice(0, 10).map((tx) => (
                                     <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
                                         <td className="px-6 py-4 text-sm text-slate-600">
                                             {new Date(tx.date).toLocaleDateString()}
@@ -227,21 +251,32 @@ export default function Overview() {
                                             )}
                                         </td>
                                         <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${tx.transaction_method === 'credit' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'
+                                                }`}>
+                                                {tx.transaction_method || tx.transaction_type}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4">
                                             {editingId === tx.id ? (
-                                                <input
-                                                    className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none"
+                                                <select
+                                                    className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none bg-white"
                                                     value={editForm.category}
                                                     onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
-                                                />
+                                                >
+                                                    <option value="">Uncategorized</option>
+                                                    {categories.map(cat => (
+                                                        <option key={cat} value={cat}>{cat}</option>
+                                                    ))}
+                                                </select>
                                             ) : (
-                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
                                                     {tx.category || 'Uncategorized'}
                                                 </span>
                                             )}
                                         </td>
-                                        <td className={`px-6 py-4 text-sm font-bold text-right ${tx.transaction_type === 'credit' ? 'text-emerald-600' : 'text-slate-900'
+                                        <td className={`px-6 py-4 text-sm font-bold text-right ${parseFloat(tx.amount) > 0 ? 'text-emerald-600' : 'text-slate-900'
                                             }`}>
-                                            {tx.transaction_type === 'credit' ? '+' : '-'}${Math.abs(tx.amount).toFixed(2)}
+                                            {parseFloat(tx.amount) > 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {editingId === tx.id ? (
@@ -281,7 +316,7 @@ function StatCard({ title, value, icon, trend, positive }) {
                     {icon}
                 </div>
                 <div className={`flex items-center gap-1 text-xs font-bold ${trend === 'Stable' ? 'text-slate-400' :
-                        positive ? 'text-emerald-500' : 'text-rose-500'
+                    positive ? 'text-emerald-500' : 'text-rose-500'
                     }`}>
                     {trend === 'Stable' ? '' : positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
                     {trend}

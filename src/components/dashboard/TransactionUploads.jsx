@@ -144,7 +144,17 @@ export default function TransactionUploads() {
         setStatus({ type: 'info', message: 'AI is processing your transactions...' });
 
         try {
-            const { data, error } = await supabase.functions.invoke('process-transactions');
+            // Get current session to ensure auth token is passed
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                throw new Error('Not authenticated. Please sign in again.');
+            }
+
+            const { data, error } = await supabase.functions.invoke('process-transactions', {
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`
+                }
+            });
 
             if (error) throw error;
 

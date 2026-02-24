@@ -32,6 +32,8 @@ serve(async (req: { method: string; }) => {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+    console.log("[1] Clients initialized");
+
     try {
         // 2. Fetch Pending Transactions
         const { data: transactions, error: txError } = await supabase
@@ -42,6 +44,7 @@ serve(async (req: { method: string; }) => {
             .limit(50); // Process in batches
 
         if (txError) throw txError;
+        console.log(`[2] Found ${transactions.length} pending transactions`);
         if (transactions.length === 0) {
             return new Response(
                 JSON.stringify({ message: "No pending transactions found." }),
@@ -80,16 +83,16 @@ serve(async (req: { method: string; }) => {
             const transactionsToClassify = userTxs.map((tx: { raw_data: any; id: any; transaction_type: any; }) => {
                 const raw = tx.raw_data;
 
-                // Deterministic Parsing (User Feedback: Positive = Expenditure, Negative = Income)
+                // Deterministic Parsing (Standard: Negative = Expenditure, Positive = Income)
                 let amount = 0;
 
                 // Handle TD Bank format (MoneyOut/MoneyIn)
-                if (raw.MoneyOut && parseFloat(raw.MoneyOut.replace(/[^0-9.]/g, '')) > 0) {
-                    // Expenditure: stored as Positive
-                    amount = Math.abs(parseFloat(raw.MoneyOut.replace(/[^0-9.]/g, '')));
-                } else if (raw.MoneyIn && parseFloat(raw.MoneyIn.replace(/[^0-9.]/g, '')) > 0) {
-                    // Income: stored as Negative
-                    amount = -1 * Math.abs(parseFloat(raw.MoneyIn.replace(/[^0-9.]/g, '')));
+                if (raw.MoneyOut && parseFloat(raw.MoneyOut.replace(/[^0-9.-]/g, '')) !== 0) {
+                    // Expenditure: stored as Negative
+                    amount = -1 * Math.abs(parseFloat(raw.MoneyOut.replace(/[^0-9.-]/g, '')));
+                } else if (raw.MoneyIn && parseFloat(raw.MoneyIn.replace(/[^0-9.-]/g, '')) !== 0) {
+                    // Income: stored as Positive
+                    amount = Math.abs(parseFloat(raw.MoneyIn.replace(/[^0-9.-]/g, '')));
                 }
 
                 // Date Parsing (Assuming MM/DD/YYYY or similar, standardized to YYYY-MM-DD)
@@ -101,9 +104,12 @@ serve(async (req: { method: string; }) => {
                     description: raw.Description,
                     amount,
                     date,
-                    transaction_type: tx.transaction_type // Use source type (credit/debit) directly from bronze
+                    transaction_type: amount < 0 ? 'Expenditure' : 'Income', // Money direction
+                    transaction_method: tx.transaction_type // Source file type ('credit' or 'debit') from bronze
                 };
             });
+
+            console.log(`[3] Prepared ${transactionsToClassify.length} transactions for user ${userId}`);
 
             // C. Construct Prompt for Gemini (Categorization ONLY)
             const fullPrompt = `
@@ -123,9 +129,11 @@ serve(async (req: { method: string; }) => {
       `;
 
             // C. Call Gemini
+            console.log(`[4] Calling Gemini for user ${userId}...`);
             const result = await model.generateContent(fullPrompt);
             const response = await result.response;
             let text = response.text();
+            console.log(`[5] Gemini responded, parsing...`);
 
             // Attempt to extract JSON if wrapped in markdown blocks
             if (text.startsWith("```json")) {
@@ -147,6 +155,7 @@ serve(async (req: { method: string; }) => {
             }
 
             // D. Upsert to Silver
+            console.log(`[6] Upserting ${Array.isArray(processedData) ? processedData.length : 0} items to silver...`);
             if (Array.isArray(processedData)) {
                 for (const item of processedData) {
                     // Find the deterministic data
@@ -160,9 +169,10 @@ serve(async (req: { method: string; }) => {
                             user_id: userId,
                             description: item.final_description || codeData.description,
                             category: item.final_category,
-                            amount: codeData.amount, // Use CODE value
-                            date: codeData.date,     // Use CODE value
-                            transaction_type: codeData.transaction_type, // Use CODE value
+                            amount: codeData.amount,
+                            date: codeData.date,
+                            transaction_type: codeData.transaction_type,     // 'Expenditure' or 'Income'
+                            transaction_method: codeData.transaction_method, // 'credit' or 'debit'
                             processed_at: new Date().toISOString(),
                             is_edited: false
                         }, { onConflict: "bronze_id" });
