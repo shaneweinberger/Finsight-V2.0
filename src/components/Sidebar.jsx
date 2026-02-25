@@ -4,6 +4,7 @@ import { LayoutDashboard, PieChart, Upload, Tags, Zap, LogOut, ChevronUp, Chevro
 import { supabase } from '../lib/supabaseClient';
 import { theme } from '../theme';
 import peanutLove from '../assets/peanut_love.jpg';
+import SettingsModal from './dashboard/SettingsModal';
 
 // Helper component for hover state
 function SidebarLink({ item, isCollapsed }) {
@@ -54,6 +55,7 @@ function DropdownItem({ icon, label, onClick, className }) {
 
 export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isProfileHovered, setIsProfileHovered] = useState(false);
     const [isToggleHovered, setIsToggleHovered] = useState(false);
     const [showSecretModal, setShowSecretModal] = useState(false);
@@ -157,7 +159,14 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                             <p className="text-xs truncate" style={{ color: theme.sidebar.userSubtext }}>{user?.email}</p>
                         </div>
                         <div className="p-1">
-                            <DropdownItem icon={<Settings size={16} />} label="Settings" />
+                            <DropdownItem
+                                icon={<Settings size={16} />}
+                                label="Settings"
+                                onClick={() => {
+                                    setIsSettingsOpen(true);
+                                    setIsUserMenuOpen(false);
+                                }}
+                            />
                             <DropdownItem icon={<Zap size={16} />} label="Upgrade Plan" />
                             <DropdownItem icon={<AlertTriangle size={16} />} label="Report a Bug" />
                             <DropdownItem
@@ -221,6 +230,12 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                     </div>
                 </div>
             )}
+            {/* User Settings Modal */}
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+                user={user}
+            />
         </div>
     );
 }
