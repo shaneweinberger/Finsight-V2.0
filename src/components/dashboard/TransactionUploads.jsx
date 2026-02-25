@@ -150,17 +150,40 @@ export default function TransactionUploads() {
                 throw new Error('Not authenticated. Please sign in again.');
             }
 
-            const { data, error } = await supabase.functions.invoke('process-transactions', {
-                headers: {
-                    Authorization: `Bearer ${session.access_token}`
-                }
-            });
+            // Process in a loop until no more pending transactions are found
+            let hasMore = true;
+            let totalProcessed = 0;
+            let loopCount = 0;
+            const MAX_LOOPS = 20;
 
-            if (error) throw error;
+            while (hasMore && loopCount < MAX_LOOPS) {
+                console.log(`[Uploads] Processing loop ${loopCount + 1}...`);
+                const { data: funcData, error: functionError } = await supabase.functions.invoke('process-transactions', {
+                    headers: {
+                        Authorization: `Bearer ${session.access_token}`
+                    }
+                });
+
+                if (functionError) throw functionError;
+
+                if (funcData && Array.isArray(funcData)) {
+                    const processedThisTime = funcData.reduce((acc, curr) => acc + (curr.processedCount || 0), 0);
+                    totalProcessed += processedThisTime;
+                    console.log(`[Uploads] Processed ${processedThisTime} in this loop. Total: ${totalProcessed}`);
+                    hasMore = processedThisTime > 0;
+                } else if (funcData && funcData.message === "No pending transactions found.") {
+                    hasMore = false;
+                    console.log(`[Uploads] No more pending transactions found.`);
+                } else {
+                    hasMore = false;
+                }
+
+                loopCount++;
+            }
 
             setStatus({
                 type: 'success',
-                message: 'AI processing complete! Your Silver table has been updated.'
+                message: `AI processing complete! ${totalProcessed} transactions move to the Silver table.`
             });
 
             fetchHistory(); // Refresh statuses in history

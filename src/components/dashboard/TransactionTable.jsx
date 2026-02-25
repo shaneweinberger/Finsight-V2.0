@@ -10,6 +10,9 @@ export default function TransactionTable({
     onEditSave,
     onEditCancel,
     onEditChange,
+    selectedIds = new Set(),
+    onSelectToggle,
+    onSelectAll,
     limit
 }) {
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -61,11 +64,25 @@ export default function TransactionTable({
         return sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-indigo-600" /> : <ChevronDown size={14} className="text-indigo-600" />;
     };
 
+    const isAllSelected = displayTransactions.length > 0 && displayTransactions.every(tx => selectedIds.has(tx.id));
+    const isSomeSelected = displayTransactions.some(tx => selectedIds.has(tx.id)) && !isAllSelected;
+
     return (
         <div className="overflow-x-auto">
             <table className="w-full text-left">
                 <thead>
                     <tr className="bg-slate-50/50 text-slate-500 text-xs font-bold uppercase tracking-wider select-none">
+                        <th className="px-6 py-4 w-10">
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
+                                    checked={isAllSelected}
+                                    ref={el => el && (el.indeterminate = isSomeSelected)}
+                                    onChange={() => onSelectAll(displayTransactions.map(tx => tx.id))}
+                                />
+                            </div>
+                        </th>
                         <th
                             className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
                             onClick={() => requestSort('date')}
@@ -111,7 +128,20 @@ export default function TransactionTable({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {displayTransactions.map((tx) => (
-                        <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <tr
+                            key={tx.id}
+                            className={`hover:bg-slate-50/50 transition-colors group ${selectedIds.has(tx.id) ? 'bg-indigo-50/30' : ''}`}
+                        >
+                            <td className="px-6 py-4">
+                                <div className="flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
+                                        checked={selectedIds.has(tx.id)}
+                                        onChange={() => onSelectToggle(tx.id)}
+                                    />
+                                </div>
+                            </td>
                             <td className="px-6 py-4 text-sm text-slate-600">
                                 {new Date(tx.date).toLocaleDateString(undefined, { timeZone: 'UTC' })}
                             </td>
@@ -130,8 +160,8 @@ export default function TransactionTable({
                             </td>
                             <td className="px-6 py-4">
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${tx.transaction_method === 'credit' ? 'bg-indigo-50 text-indigo-700' :
-                                        tx.transaction_method === 'debit' ? 'bg-amber-50 text-amber-700' :
-                                            'bg-slate-50 text-slate-700'
+                                    tx.transaction_method === 'debit' ? 'bg-amber-50 text-amber-700' :
+                                        'bg-slate-50 text-slate-700'
                                     }`}>
                                     {tx.transaction_method ? tx.transaction_method.toUpperCase() : tx.transaction_type}
                                 </span>

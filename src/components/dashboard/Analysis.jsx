@@ -8,7 +8,8 @@ import {
     Loader2,
     Search,
     Download,
-    ArrowUpDown
+    ArrowUpDown,
+    Trash2
 } from 'lucide-react';
 
 export default function Analysis() {
@@ -18,6 +19,8 @@ export default function Analysis() {
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ description: '', category: '' });
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -40,6 +43,8 @@ export default function Analysis() {
 
             if (error) throw error;
             setTransactions(data || []);
+            // Clear selection on refresh
+            setSelectedIds(new Set());
         } catch (err) {
             console.error('Error fetching transactions:', err);
         }
@@ -98,6 +103,68 @@ export default function Analysis() {
         }
     };
 
+    const handleSelectToggle = (id) => {
+        const next = new Set(selectedIds);
+        if (next.has(id)) {
+            next.delete(id);
+        } else {
+            next.add(id);
+        }
+        setSelectedIds(next);
+    };
+
+    const handleSelectAll = (ids) => {
+        const allAlreadySelected = ids.every(id => selectedIds.has(id));
+        if (allAlreadySelected) {
+            const next = new Set(selectedIds);
+            ids.forEach(id => next.delete(id));
+            setSelectedIds(next);
+        } else {
+            const next = new Set(selectedIds);
+            ids.forEach(id => next.add(id));
+            setSelectedIds(next);
+        }
+    };
+
+    const handleDeleteSelected = async () => {
+        const count = selectedIds.size;
+        if (!confirm(`Are you sure you want to delete ${count} transactions? This will remove them from both Silver (processed) and Bronze (raw) tables.`)) return;
+
+        setIsDeleting(true);
+        try {
+            const selectedTxs = transactions.filter(t => selectedIds.has(t.id));
+            const bronzeIds = selectedTxs.map(t => t.bronze_id).filter(Boolean);
+            const silverIds = Array.from(selectedIds);
+
+            // 1. Delete from Silver
+            const { error: silverError } = await supabase
+                .from('silver_transactions')
+                .delete()
+                .in('id', silverIds);
+
+            if (silverError) throw silverError;
+
+            // 2. Delete from Bronze
+            if (bronzeIds.length > 0) {
+                const { error: bronzeError } = await supabase
+                    .schema('bronze')
+                    .from('transactions')
+                    .delete()
+                    .in('id', bronzeIds);
+
+                if (bronzeError) throw bronzeError;
+            }
+
+            setTransactions(prev => prev.filter(t => !selectedIds.has(t.id)));
+            setSelectedIds(new Set());
+        } catch (err) {
+            console.error('Error deleting transactions:', err);
+            alert(`Failed to delete: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -139,6 +206,16 @@ export default function Analysis() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {selectedIds.size > 0 && (
+                            <button
+                                onClick={handleDeleteSelected}
+                                disabled={isDeleting}
+                                className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all border border-rose-100 shadow-sm animate-in zoom-in-95 duration-200"
+                            >
+                                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                                Delete Selected ({selectedIds.size})
+                            </button>
+                        )}
                         <button className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 transition-all shadow-none hover:shadow-sm">
                             <Download size={20} />
                         </button>
@@ -162,6 +239,9 @@ export default function Analysis() {
                         onEditSave={handleEditSave}
                         onEditCancel={handleEditCancel}
                         onEditChange={onEditChange}
+                        selectedIds={selectedIds}
+                        onSelectToggle={handleSelectToggle}
+                        onSelectAll={handleSelectAll}
                     />
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center p-20 text-center">

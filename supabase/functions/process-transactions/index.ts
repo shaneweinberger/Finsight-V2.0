@@ -53,7 +53,6 @@ serve(async (req: { method: string; }) => {
         }
 
         // 3. Group by User ID to process user-specific rules
-        // (In a real high-scale system, we might process one user per invocation or use queues)
         const txByUser: Record<string, typeof transactions> = {};
         for (const tx of transactions) {
             if (!txByUser[tx.user_id]) {
@@ -70,7 +69,7 @@ serve(async (req: { method: string; }) => {
 
             // A. Fetch Context
             const [promptsRes, rulesRes, categoriesRes] = await Promise.all([
-                supabase.from("llm_prompts").select("prompt_text").eq("is_active", true).single(), // Get active system prompt
+                supabase.from("llm_prompts").select("prompt_text").eq("is_active", true).single(),
                 supabase.from("user_rules").select("*").eq("user_id", userId).eq("is_active", true),
                 supabase.from("user_categories").select("name").eq("user_id", userId),
             ]);
@@ -79,23 +78,31 @@ serve(async (req: { method: string; }) => {
             const rules = rulesRes.data || [];
             const categories = categoriesRes.data?.map((c: { name: any; }) => c.name) || [];
 
-            // B. Prepare Data Deterministically (Code-side)
+            // Separate structured rules and natural language (AI instructions) rules
+            const structuredRules = rules.filter((r: any) => r.conditions && r.actions);
+            const nlpRules = rules.filter((r: any) => r.rule_text).map((r: any) => r.rule_text);
+
+            // B. Prepare Data
             const transactionsToClassify = userTxs.map((tx: { raw_data: any; id: any; transaction_type: any; }) => {
                 const raw = tx.raw_data;
-
-                // Deterministic Parsing (Standard: Negative = Expenditure, Positive = Income)
                 let amount = 0;
 
-                // Handle TD Bank format (MoneyOut/MoneyIn)
-                if (raw.MoneyOut && parseFloat(raw.MoneyOut.replace(/[^0-9.-]/g, '')) !== 0) {
-                    // Expenditure: stored as Negative
-                    amount = -1 * Math.abs(parseFloat(raw.MoneyOut.replace(/[^0-9.-]/g, '')));
-                } else if (raw.MoneyIn && parseFloat(raw.MoneyIn.replace(/[^0-9.-]/g, '')) !== 0) {
-                    // Income: stored as Positive
-                    amount = Math.abs(parseFloat(raw.MoneyIn.replace(/[^0-9.-]/g, '')));
+                const parseAmount = (val: any): number => {
+                    if (val === undefined || val === null || val === '') return 0;
+                    const clean = String(val).replace(/[^0-9.-]/g, '');
+                    const parsed = parseFloat(clean);
+                    return isNaN(parsed) ? 0 : parsed;
+                };
+
+                const moneyOut = parseAmount(raw.MoneyOut);
+                const moneyIn = parseAmount(raw.MoneyIn);
+
+                if (moneyOut !== 0) {
+                    amount = -1 * Math.abs(moneyOut);
+                } else if (moneyIn !== 0) {
+                    amount = Math.abs(moneyIn);
                 }
 
-                // Date Parsing (Assuming MM/DD/YYYY or similar, standardized to YYYY-MM-DD)
                 const dateObj = new Date(raw.Date);
                 const date = !isNaN(dateObj.getTime()) ? dateObj.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
@@ -104,34 +111,55 @@ serve(async (req: { method: string; }) => {
                     description: raw.Description,
                     amount,
                     date,
-                    transaction_type: amount < 0 ? 'Expenditure' : 'Income', // Money direction
-                    transaction_method: tx.transaction_type // Source file type ('credit' or 'debit') from bronze
+                    transaction_type: amount < 0 ? 'Expenditure' : 'Income',
+                    transaction_method: tx.transaction_type
                 };
             });
 
             console.log(`[3] Prepared ${transactionsToClassify.length} transactions for user ${userId}`);
 
-            // C. Construct Prompt for Gemini (Categorization ONLY)
+            // C. Construct Prompt
+            const transactionList = transactionsToClassify.map((t: { id: any; description: any; amount: any; }) => ({ id: t.id, description: t.description, amount: t.amount }));
+            console.log(`[3.1] Sending ${transactionList.length} transactions to AI (approx payload size: ${JSON.stringify(transactionList).length} chars)`);
+
             const fullPrompt = `
         ${basePrompt}
 
         User Categories: ${JSON.stringify(categories)}
         
-        User Rules: ${JSON.stringify(rules)}
+        Structured Rules: ${JSON.stringify(structuredRules)}
+
+        Natural Language Rules (High Priority):
+        ${nlpRules.map((rule: string, i: number) => `${i + 1}. ${rule}`).join('\n')}
+
+        Instructions:
+        1. Categorize the transactions based on the provided categories and rules.
+        2. If a rule (structured or natural language) indicates a transaction should be deleted (e.g., if it says to categorize as "delete" or "deleted"), assign the category exactly as "delete".
+        3. Do not create new categories. Use the provided list.
 
         Transactions to Categorize:
         ${JSON.stringify(transactionsToClassify.map((t: { id: any; description: any; amount: any; }) => ({ id: t.id, description: t.description, amount: t.amount })))}
 
         Output a JSON array where each object has:
         - uuid: (the transaction id provided)
-        - final_category: (selected category based on description and rules)
-        - final_description: (cleaned up merchant name, e.g. "UBER *TRIP" -> "Uber")
+        - final_category: (selected category or "delete")
+        - final_description: (cleaned up merchant name)
       `;
 
             // C. Call Gemini
             console.log(`[4] Calling Gemini for user ${userId}...`);
-            const result = await model.generateContent(fullPrompt);
-            const response = await result.response;
+            let response;
+            try {
+                const startTime = Date.now();
+                const result = await model.generateContent(fullPrompt);
+                response = await result.response;
+                console.log(`[4.1] Gemini AI responded in ${Date.now() - startTime}ms`);
+            } catch (geminiErr: any) {
+                console.error(`[4.ERR] Gemini API call failed: ${geminiErr.message}`);
+                console.error(`[4.ERR] Full error details: ${JSON.stringify(geminiErr)}`);
+                throw new Error(`Gemini API connection failed: ${geminiErr.message}`);
+            }
+
             let text = response.text();
             console.log(`[5] Gemini responded, parsing...`);
 
@@ -154,38 +182,105 @@ serve(async (req: { method: string; }) => {
                 continue;
             }
 
-            // D. Upsert to Silver
-            console.log(`[6] Upserting ${Array.isArray(processedData) ? processedData.length : 0} items to silver...`);
+            // D. Prepare Batched Operations
+            const silverUpserts: any[] = [];
+            const bronzeProcessedIds: string[] = [];
+            const bronzeDeleteIds: string[] = [];
+            const bronzeErrorIds: string[] = [];
+            let errorMsg = '';
+
             if (Array.isArray(processedData)) {
                 for (const item of processedData) {
-                    // Find the deterministic data
-                    const codeData = transactionsToClassify.find((t: { id: any; }) => t.id === item.uuid);
+                    const codeData = transactionsToClassify.find((t: any) => t.id === item.uuid);
                     if (!codeData) continue;
 
-                    const { error: upsertError } = await supabase
-                        .from("silver_transactions")
-                        .upsert({
-                            bronze_id: item.uuid,
-                            user_id: userId,
-                            description: item.final_description || codeData.description,
-                            category: item.final_category,
-                            amount: codeData.amount,
-                            date: codeData.date,
-                            transaction_type: codeData.transaction_type,     // 'Expenditure' or 'Income'
-                            transaction_method: codeData.transaction_method, // 'credit' or 'debit'
-                            processed_at: new Date().toISOString(),
-                            is_edited: false
-                        }, { onConflict: "bronze_id" });
-
-                    if (upsertError) {
-                        console.error("Upsert failed", upsertError);
-                        await supabase.schema("bronze").from("transactions").update({ status: 'error', error_message: upsertError.message }).eq('id', item.uuid);
-                    } else {
-                        await supabase.schema("bronze").from("transactions").update({ status: 'processed' }).eq('id', item.uuid);
+                    // Support for hard-coded deletion via rules
+                    if (item.final_category?.toLowerCase() === 'delete') {
+                        bronzeDeleteIds.push(item.uuid);
+                        continue;
                     }
+
+                    silverUpserts.push({
+                        bronze_id: item.uuid,
+                        user_id: userId,
+                        description: item.final_description || codeData.description,
+                        category: item.final_category,
+                        amount: codeData.amount,
+                        date: codeData.date,
+                        transaction_type: codeData.transaction_type,
+                        transaction_method: codeData.transaction_method,
+                        processed_at: new Date().toISOString(),
+                        is_edited: false
+                    });
+                    bronzeProcessedIds.push(item.uuid);
                 }
             }
-            results.push({ userId, processedCount: processedData ? processedData.length : 0 });
+
+            // Also mark any transactions that Gemini completely skipped as 'processed' (ignored)
+            // to prevent them from clogging the pipeline in future loops.
+            const respondedIds = new Set(processedData.map((d: any) => d.uuid));
+            const omittedIds = userTxs.filter((tx: any) => !respondedIds.has(tx.id)).map((tx: any) => tx.id);
+            if (omittedIds.length > 0) {
+                console.log(`[6] AI omitted ${omittedIds.length} transactions. Marking as processed (ignored).`);
+                bronzeProcessedIds.push(...omittedIds);
+            }
+
+            // E. Execute Batched Operations
+            console.log(`[7] Batch upserting ${silverUpserts.length} items to silver...`);
+            if (silverUpserts.length > 0) {
+                const { error: silverError } = await supabase
+                    .from("silver_transactions")
+                    .upsert(silverUpserts, { onConflict: "bronze_id" });
+
+                if (silverError) {
+                    console.error("Batch Silver upsert failed", silverError);
+                    errorMsg = silverError.message;
+                    // Add all IDs associated with silver updates to the error pool
+                    const silverIds = silverUpserts.map(u => u.bronze_id);
+                    bronzeErrorIds.push(...silverIds);
+                    // Remove them from processed pool so we don't try to mark them as successful
+                    const errorSet = new Set(silverIds);
+                    const filteredProcessed = bronzeProcessedIds.filter(id => !errorSet.has(id));
+                    bronzeProcessedIds.length = 0;
+                    bronzeProcessedIds.push(...filteredProcessed);
+                }
+            }
+
+            console.log(`[8] Database updates: del=${bronzeDeleteIds.length}, err=${bronzeErrorIds.length}, ok=${bronzeProcessedIds.length}`);
+
+            // Perform updates independently
+            if (bronzeDeleteIds.length > 0) {
+                console.log(`[8.1] Physically deleting ${bronzeDeleteIds.length} items from bronze`);
+                const { error: bronzeDeleteError } = await supabase.schema("bronze").from("transactions")
+                    .delete()
+                    .in('id', bronzeDeleteIds);
+                if (bronzeDeleteError) console.error("Batch Bronze deletion failed", bronzeDeleteError);
+            }
+
+            if (bronzeErrorIds.length > 0) {
+                console.log(`[8.2] Marking ${bronzeErrorIds.length} as ERROR`);
+                await supabase.schema("bronze").from("transactions")
+                    .update({ status: 'error', error_message: errorMsg || 'Batch update failed' })
+                    .in('id', bronzeErrorIds);
+            }
+
+            if (bronzeProcessedIds.length > 0) {
+                console.log(`[8.3] Marking ${bronzeProcessedIds.length} as PROCESSED`);
+                const { error: bronzeUpdateError } = await supabase.schema("bronze").from("transactions")
+                    .update({ status: 'processed' })
+                    .in('id', bronzeProcessedIds);
+
+                if (bronzeUpdateError) {
+                    console.error("Batch Bronze update failed", bronzeUpdateError);
+                }
+            }
+
+            results.push({
+                userId,
+                processedCount: bronzeProcessedIds.length,
+                deletedCount: bronzeDeleteIds.length,
+                errorCount: bronzeErrorIds.length
+            });
         }
 
         return new Response(JSON.stringify(results), {
