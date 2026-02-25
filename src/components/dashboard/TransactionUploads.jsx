@@ -1,14 +1,21 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import Papa from 'papaparse';
-import { UploadCloud, CreditCard, Wallet, CheckCircle2, AlertCircle, Loader2, Sparkles, FileText, History, Trash2 } from 'lucide-react';
+import { UploadCloud, CheckCircle2, AlertCircle, Loader2, Sparkles, FileText, History, Trash2, Plus, X } from 'lucide-react';
 
 export default function TransactionUploads() {
-    const [uploading, setUploading] = useState(null); // 'credit' or 'debit'
+    const [pendingFile, setPendingFile] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: '', message: '' });
     const [uploadHistory, setUploadHistory] = useState([]);
+
+    // Account Selection State
+    const [savedAccounts, setSavedAccounts] = useState([]);
+    const [selectedAccount, setSelectedAccount] = useState('');
+    const [isAddingNewAccount, setIsAddingNewAccount] = useState(false);
+    const [newAccountName, setNewAccountName] = useState('');
+
+    const fileInputRef = useRef(null);
 
     const fetchHistory = useCallback(async () => {
         try {
@@ -20,7 +27,7 @@ export default function TransactionUploads() {
             const { data, error } = await supabase
                 .schema('bronze')
                 .from('transactions')
-                .select('file_id, file_name, transaction_type, created_at, status')
+                .select('file_id, file_name, transaction_account, created_at, status')
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false });
 
@@ -37,10 +44,28 @@ export default function TransactionUploads() {
             }
 
             setUploadHistory(uniqueFiles);
+
+            // Fetch unique transaction accounts from user_accounts
+            const { data: accountsData, error: accountsError } = await supabase
+                .from('user_accounts')
+                .select('account_name')
+                .eq('user_id', user.id)
+                .order('account_name');
+
+            if (!accountsError && accountsData) {
+                const accountArray = accountsData.map(d => d.account_name).filter(Boolean);
+                setSavedAccounts(accountArray);
+
+                // Set default selected account if available
+                if (accountArray.length > 0) {
+                    if (!selectedAccount) setSelectedAccount(accountArray[0]);
+                }
+            }
+
         } catch (err) {
-            console.error('Error fetching history:', err);
+            console.error('Error fetching data:', err);
         }
-    }, []);
+    }, [selectedAccount]);
 
     useEffect(() => {
         fetchHistory();
@@ -68,15 +93,64 @@ export default function TransactionUploads() {
         }
     };
 
-    const handleFileUpload = async (event, type) => {
+    const handleFileSelect = (event) => {
         const file = event.target.files[0];
-        if (!file) return;
+        if (file) {
+            setPendingFile(file);
+            setStatus({ type: '', message: '' });
+        }
+    };
 
-        setUploading(type);
-        setStatus({ type: '', message: '' });
+    const handleAddAccount = async () => {
+        const accName = newAccountName.trim();
+        if (!accName) return;
 
-        Papa.parse(file, {
-            header: false, // TD CSVs have no headers
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('User not authenticated');
+
+            setStatus({ type: 'info', message: 'Saving new account...' });
+
+            const { error } = await supabase
+                .from('user_accounts')
+                .insert([{ user_id: user.id, account_name: accName }]);
+
+            if (error && error.code !== '23505') { // ignore duplicate key error just in case
+                throw error;
+            }
+
+            setStatus({ type: 'success', message: `Account "${accName}" saved.` });
+
+            setSavedAccounts(prev => {
+                const newArr = prev.includes(accName) ? prev : [...prev, accName].sort();
+                return newArr;
+            });
+            setSelectedAccount(accName);
+            setIsAddingNewAccount(false);
+            setNewAccountName('');
+        } catch (err) {
+            console.error('Error adding account:', err);
+            setStatus({ type: 'error', message: `Failed to save account: ${err.message}` });
+        }
+    };
+
+    const handleRunAiProcessing = async () => {
+        if (!pendingFile) {
+            setStatus({ type: 'error', message: 'Please select a CSV file first.' });
+            return;
+        }
+
+        const finalAccountName = selectedAccount;
+        if (!finalAccountName) {
+            setStatus({ type: 'error', message: 'Please select a transaction account first.' });
+            return;
+        }
+
+        setProcessing(true);
+        setStatus({ type: 'info', message: 'Reading and uploading your file...' });
+
+        Papa.parse(pendingFile, {
+            header: false,
             skipEmptyLines: true,
             complete: async (results) => {
                 try {
@@ -84,29 +158,27 @@ export default function TransactionUploads() {
                     if (!user) throw new Error('User not authenticated');
 
                     const fileId = crypto.randomUUID();
-                    const fileName = file.name;
+                    const fileName = pendingFile.name;
 
                     // Manually map array rows to objects based on user-provided schema
-                    // Schema: Date | Description | Money Out | Money In | Balance
                     const transactions = results.data.map(row => {
-                        // row is an array like ["01/01/2024", "UBER", "15.00", "", "100.00"]
-                        const rawObject = {
-                            Date: row[0],
-                            Description: row[1],
-                            MoneyOut: row[2],
-                            MoneyIn: row[3],
-                            Balance: row[4]
-                        };
-
                         return {
                             user_id: user.id,
                             file_id: fileId,
                             file_name: fileName,
-                            transaction_type: type,
-                            raw_data: rawObject,
+                            transaction_account: finalAccountName,
+                            raw_data: {
+                                Date: row[0],
+                                Description: row[1],
+                                MoneyOut: row[2],
+                                MoneyIn: row[3],
+                                Balance: row[4]
+                            },
                             status: 'pending'
                         };
                     });
+
+                    setStatus({ type: 'info', message: 'Uploading to Bronze layer...' });
 
                     const { error } = await supabase
                         .schema('bronze')
@@ -115,42 +187,32 @@ export default function TransactionUploads() {
 
                     if (error) throw error;
 
-                    setStatus({
-                        type: 'success',
-                        message: `Successfully uploaded ${transactions.length} ${type} transactions!`
-                    });
+                    setStatus({ type: 'info', message: 'Uploaded successfully. AI is now categorizing...' });
+                    await processTransactionsInternal(finalAccountName);
 
-                    fetchHistory(); // Refresh history
                 } catch (err) {
                     console.error('Upload error:', err);
                     setStatus({
                         type: 'error',
                         message: `Failed to upload: ${err.message}`
                     });
-                } finally {
-                    setUploading(null);
-                    event.target.value = ''; // Reset input
+                    setProcessing(false);
                 }
             },
             error: (err) => {
                 setStatus({ type: 'error', message: `CSV Parsing error: ${err.message}` });
-                setUploading(null);
+                setProcessing(false);
             }
         });
     };
 
-    const processTransactions = async () => {
-        setProcessing(true);
-        setStatus({ type: 'info', message: 'AI is processing your transactions...' });
-
+    const processTransactionsInternal = async (usedAccountName) => {
         try {
-            // Get current session to ensure auth token is passed
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
                 throw new Error('Not authenticated. Please sign in again.');
             }
 
-            // Process in a loop until no more pending transactions are found
             let hasMore = true;
             let totalProcessed = 0;
             let loopCount = 0;
@@ -173,7 +235,6 @@ export default function TransactionUploads() {
                     hasMore = processedThisTime > 0;
                 } else if (funcData && funcData.message === "No pending transactions found.") {
                     hasMore = false;
-                    console.log(`[Uploads] No more pending transactions found.`);
                 } else {
                     hasMore = false;
                 }
@@ -183,27 +244,32 @@ export default function TransactionUploads() {
 
             setStatus({
                 type: 'success',
-                message: `AI processing complete! ${totalProcessed} transactions move to the Silver table.`
+                message: `AI processing complete! ${totalProcessed} transactions moved to the Silver table.`
             });
+
+            // Cleanup inputs
+            setPendingFile(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+
+            if (isAddingNewAccount && usedAccountName) {
+                setSavedAccounts(prev => Array.from(new Set([...prev, usedAccountName])));
+                setSelectedAccount(usedAccountName);
+                setIsAddingNewAccount(false);
+                setNewAccountName('');
+            }
 
             fetchHistory(); // Refresh statuses in history
         } catch (err) {
             console.error('Processing error:', err);
-
             let errorMessage = err.message;
-
-            // Handle Supabase FunctionsHttpError to get the actual response body
             if (err.context && typeof err.context.json === 'function') {
                 try {
                     const errorContext = await err.context.json();
-                    if (errorContext && errorContext.error) {
-                        errorMessage = errorContext.error;
-                    }
-                } catch (jsonErr) {
-                    console.error('Failed to parse error context:', jsonErr);
+                    if (errorContext && errorContext.error) errorMessage = errorContext.error;
+                } catch {
+                    // Ignore JSON parse errors for the error context
                 }
             }
-
             setStatus({
                 type: 'error',
                 message: `Processing failed: ${errorMessage}`
@@ -223,19 +289,6 @@ export default function TransactionUploads() {
                     </h1>
                     <p className="text-slate-500 mt-1">Upload your raw CSV data to the Bronze layer for AI processing.</p>
                 </div>
-
-                <button
-                    onClick={processTransactions}
-                    disabled={processing}
-                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-                >
-                    {processing ? (
-                        <Loader2 size={20} className="animate-spin" />
-                    ) : (
-                        <Sparkles size={20} className="group-hover:animate-pulse" />
-                    )}
-                    {processing ? 'Processing...' : 'Run AI Categorization'}
-                </button>
             </div>
 
             {status.message && (
@@ -248,26 +301,132 @@ export default function TransactionUploads() {
                 </div>
             )}
 
-            <div className="grid md:grid-cols-2 gap-8">
-                {/* Credit Card Upload */}
-                <UploadCard
-                    title="Credit Transactions"
-                    description="Upload your credit card statements (CSV format)"
-                    icon={<CreditCard size={28} className="text-indigo-600" />}
-                    type="credit"
-                    loading={uploading === 'credit'}
-                    onUpload={(e) => handleFileUpload(e, 'credit')}
-                />
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-8 max-w-2xl mx-auto space-y-8">
 
-                {/* Debit Card Upload */}
-                <UploadCard
-                    title="Debit Transactions"
-                    description="Upload your debit/savings statements (CSV format)"
-                    icon={<Wallet size={28} className="text-emerald-600" />}
-                    type="debit"
-                    loading={uploading === 'debit'}
-                    onUpload={(e) => handleFileUpload(e, 'debit')}
-                />
+                {/* Step 1: Upload CSV */}
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-sm">1</span>
+                        Upload CSV File
+                    </h3>
+                    <label className="block w-full cursor-pointer group">
+                        <div className={`
+                            flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 transition-all
+                            ${pendingFile ? 'bg-indigo-50/50 border-indigo-300' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-white'}
+                        `}>
+                            {pendingFile ? (
+                                <>
+                                    <FileText size={40} className="text-indigo-500 mb-3" />
+                                    <span className="text-sm font-semibold text-indigo-700">{pendingFile.name}</span>
+                                    <span className="text-xs text-indigo-400 mt-1">{(pendingFile.size / 1024).toFixed(1)} KB</span>
+                                </>
+                            ) : (
+                                <>
+                                    <UploadCloud size={40} className="text-slate-400 mb-3 group-hover:text-indigo-500 transition-colors" />
+                                    <span className="text-sm font-semibold text-slate-700">Click to select or drag & drop</span>
+                                    <span className="text-xs text-slate-400 mt-1">Accepts standard CSV statements</span>
+                                </>
+                            )}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv"
+                                className="hidden"
+                                onChange={handleFileSelect}
+                                disabled={processing}
+                            />
+                        </div>
+                    </label>
+                </div>
+
+                {/* Step 2: Select Account */}
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-sm">2</span>
+                        Select Account
+                    </h3>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        {savedAccounts.map((account, index) => (
+                            <button
+                                key={index}
+                                onClick={() => {
+                                    setSelectedAccount(account);
+                                    setIsAddingNewAccount(false);
+                                    setNewAccountName('');
+                                }}
+                                className={`px-5 py-2.5 rounded-full font-medium text-sm transition-all border ${selectedAccount === account && !isAddingNewAccount
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400 hover:bg-slate-50'
+                                    }`}
+                            >
+                                {account}
+                            </button>
+                        ))}
+
+                        {isAddingNewAccount ? (
+                            <div className="relative w-full">
+                                <input
+                                    type="text"
+                                    value={newAccountName}
+                                    onChange={(e) => setNewAccountName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleAddAccount();
+                                    }}
+                                    placeholder="e.g. TD Credit Card"
+                                    className="w-full pl-4 pr-20 py-2.5 rounded-full font-medium text-sm border-2 border-indigo-500 outline-none shadow-sm shadow-indigo-100"
+                                    autoFocus
+                                />
+                                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    <button
+                                        onClick={handleAddAccount}
+                                        className="p-1.5 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-full transition-colors"
+                                        title="Save account"
+                                    >
+                                        <CheckCircle2 size={14} className="stroke-[3]" />
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setIsAddingNewAccount(false);
+                                            setNewAccountName('');
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                                        title="Cancel"
+                                    >
+                                        <X size={14} className="stroke-[3]" />
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    setIsAddingNewAccount(true);
+                                    setSelectedAccount('');
+                                }}
+                                className={`flex items-center justify-center w-10 h-10 rounded-full border-2 border-dashed transition-all ${savedAccounts.length === 0 ? 'border-indigo-500 bg-indigo-50 text-indigo-600 shadow-sm' : 'border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-slate-50'}`}
+                                title="Add brand new account"
+                            >
+                                <Plus size={20} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Step 3: Run AI Processing */}
+                <div className="pt-6 border-t border-slate-100">
+                    <button
+                        onClick={handleRunAiProcessing}
+                        disabled={!pendingFile || !selectedAccount || isAddingNewAccount || processing}
+                        className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                    >
+                        {processing ? (
+                            <Loader2 size={24} className="animate-spin" />
+                        ) : (
+                            <Sparkles size={24} className="group-hover:animate-pulse" />
+                        )}
+                        {processing ? 'Uploading & Processing...' : 'Run AI Processing'}
+                    </button>
+                </div>
             </div>
 
             {/* Upload History */}
@@ -282,7 +441,7 @@ export default function TransactionUploads() {
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200">
                                     <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">File Name</th>
-                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
+                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Account</th>
                                     <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Upload Date</th>
                                     <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                                     <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -298,9 +457,8 @@ export default function TransactionUploads() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${file.transaction_type === 'credit' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'
-                                                }`}>
-                                                {file.transaction_type}
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700`}>
+                                                {file.transaction_account}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-slate-500">
@@ -332,80 +490,6 @@ export default function TransactionUploads() {
                     </div>
                 </div>
             )}
-
-            <div className="mt-12 bg-slate-50 border border-slate-200 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
-                    <Sparkles size={20} className="text-amber-500" />
-                    How the Pipeline Works
-                </h3>
-                <div className="grid md:grid-cols-3 gap-6">
-                    <StepCard
-                        number="1"
-                        title="Bronze Layer"
-                        desc="Your raw CSV data is normalized and stored securely in the bronze schema."
-                    />
-                    <StepCard
-                        number="2"
-                        title="AI Processing"
-                        desc="Gemini analyzes descriptions, applies your custom rules, and assigns categories."
-                    />
-                    <StepCard
-                        number="3"
-                        title="Silver Layer"
-                        desc="Cleaned, categorized records are moved to the Silver table as your source of truth."
-                    />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function UploadCard({ title, description, icon, type, loading, onUpload }) {
-    return (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
-            <div className="p-6">
-                <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    {icon}
-                </div>
-                <h2 className="text-xl font-bold text-slate-900 mb-1">{title}</h2>
-                <p className="text-slate-500 text-sm mb-6">{description}</p>
-
-                <label className="block w-full cursor-pointer">
-                    <div className={`
-                        flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 transition-all
-                        ${loading ? 'bg-slate-50 border-slate-300' : 'bg-slate-50/50 border-slate-200 hover:border-indigo-400 hover:bg-white'}
-                    `}>
-                        {loading ? (
-                            <Loader2 size={32} className="animate-spin text-slate-400" />
-                        ) : (
-                            <>
-                                <UploadCloud size={32} className="text-slate-400 mb-2" />
-                                <span className="text-sm font-semibold text-slate-700">Click to upload or drag & drop</span>
-                                <span className="text-xs text-slate-400 mt-1">Accepts CSV only</span>
-                            </>
-                        )}
-                        <input
-                            type="file"
-                            accept=".csv"
-                            className="hidden"
-                            onChange={onUpload}
-                            disabled={loading}
-                        />
-                    </div>
-                </label>
-            </div>
-        </div>
-    );
-}
-
-function StepCard({ number, title, desc }) {
-    return (
-        <div className="relative pl-10">
-            <div className="absolute left-0 top-0 w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-indigo-600 shadow-sm">
-                {number}
-            </div>
-            <h4 className="font-bold text-slate-900 mb-1">{title}</h4>
-            <p className="text-sm text-slate-500 leading-relaxed">{desc}</p>
         </div>
     );
 }

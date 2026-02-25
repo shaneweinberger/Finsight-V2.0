@@ -391,3 +391,6 @@ entrypoint = "./functions/debug-errors/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/debug-errors/*.html" ]
+
+[functions.process-transactions]
+verify_jwt = false

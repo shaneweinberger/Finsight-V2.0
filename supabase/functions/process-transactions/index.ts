@@ -82,8 +82,7 @@ serve(async (req: { method: string; }) => {
             const structuredRules = rules.filter((r: any) => r.conditions && r.actions);
             const nlpRules = rules.filter((r: any) => r.rule_text).map((r: any) => r.rule_text);
 
-            // B. Prepare Data
-            const transactionsToClassify = userTxs.map((tx: { raw_data: any; id: any; transaction_type: any; }) => {
+            const transactionsToClassify = userTxs.map((tx: { raw_data: any; id: any; transaction_account: any; }) => {
                 const raw = tx.raw_data;
                 let amount = 0;
 
@@ -112,7 +111,7 @@ serve(async (req: { method: string; }) => {
                     amount,
                     date,
                     transaction_type: amount < 0 ? 'Expenditure' : 'Income',
-                    transaction_method: tx.transaction_type
+                    transaction_account: tx.transaction_account
                 };
             });
 
@@ -208,7 +207,7 @@ serve(async (req: { method: string; }) => {
                         amount: codeData.amount,
                         date: codeData.date,
                         transaction_type: codeData.transaction_type,
-                        transaction_method: codeData.transaction_method,
+                        transaction_account: codeData.transaction_account,
                         processed_at: new Date().toISOString(),
                         is_edited: false
                     });

@@ -138,10 +138,10 @@ export default function TransactionTable({
                         </th>
                         <th
                             className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
-                            onClick={() => requestSort('transaction_method')}
+                            onClick={() => requestSort('transaction_account')}
                         >
                             <div className="flex items-center gap-1">
-                                Type <SortIndicator columnKey="transaction_method" />
+                                Account <SortIndicator columnKey="transaction_account" />
                             </div>
                         </th>
                         <th
@@ -196,11 +196,11 @@ export default function TransactionTable({
                                 )}
                             </td>
                             <td className="px-6 py-4">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${tx.transaction_method === 'credit' ? 'bg-indigo-50 text-indigo-700' :
-                                    tx.transaction_method === 'debit' ? 'bg-amber-50 text-amber-700' :
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${tx.transaction_account?.toLowerCase()?.includes('credit') ? 'bg-indigo-50 text-indigo-700' :
+                                    tx.transaction_account?.toLowerCase()?.includes('debit') ? 'bg-amber-50 text-amber-700' :
                                         'bg-slate-50 text-slate-700'
                                     }`}>
-                                    {tx.transaction_method ? tx.transaction_method.toUpperCase() : tx.transaction_type}
+                                    {tx.transaction_account ? tx.transaction_account.toUpperCase() : 'UNKNOWN'}
                                 </span>
                             </td>
                             <td className="px-6 py-4">
