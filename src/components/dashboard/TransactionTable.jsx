@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Edit2, Check, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Edit2, Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Calendar } from 'lucide-react';
 
 export default function TransactionTable({
     transactions,
@@ -13,9 +13,31 @@ export default function TransactionTable({
     selectedIds = new Set(),
     onSelectToggle,
     onSelectAll,
-    limit
+    onToggleDateFormat,
+    limit,
+    dateFormat = 'standard'
 }) {
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+
+    const formatDate = (dateString) => {
+        const date = new Date(dateString);
+        if (dateFormat === 'friendly') {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            const dayName = days[date.getUTCDay()];
+            const monthName = months[date.getUTCMonth()];
+            const day = date.getUTCDate();
+
+            let suffix = 'th';
+            if (day % 10 === 1 && day !== 11) suffix = 'st';
+            else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+            else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+            return `${dayName} ${monthName} ${day}${suffix}`;
+        }
+        return date.toLocaleDateString(undefined, { timeZone: 'UTC' });
+    };
 
     const sortedTransactions = useMemo(() => {
         let sortableItems = [...transactions];
@@ -84,11 +106,26 @@ export default function TransactionTable({
                             </div>
                         </th>
                         <th
-                            className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
-                            onClick={() => requestSort('date')}
+                            className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors group"
+                            onClick={(e) => {
+                                // Prevent sorting if the icon itself is clicked
+                                if (e.target.closest('.date-toggle')) return;
+                                requestSort('date');
+                            }}
                         >
                             <div className="flex items-center gap-1">
-                                Date <SortIndicator columnKey="date" />
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onToggleDateFormat?.();
+                                    }}
+                                    className="date-toggle p-1 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors mr-1"
+                                    title="Toggle Date Format"
+                                >
+                                    <Calendar size={14} />
+                                </button>
+                                <span>Date</span>
+                                <SortIndicator columnKey="date" />
                             </div>
                         </th>
                         <th
@@ -143,7 +180,7 @@ export default function TransactionTable({
                                 </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-600">
-                                {new Date(tx.date).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+                                {formatDate(tx.date)}
                             </td>
                             <td className="px-6 py-4">
                                 {editingId === tx.id ? (
@@ -153,7 +190,7 @@ export default function TransactionTable({
                                         onChange={(e) => onEditChange('description', e.target.value)}
                                     />
                                 ) : (
-                                    <span className="text-sm font-medium text-slate-900 truncate block max-w-[200px]">
+                                    <span className="text-sm font-medium text-slate-900 break-words block">
                                         {tx.description}
                                     </span>
                                 )}
