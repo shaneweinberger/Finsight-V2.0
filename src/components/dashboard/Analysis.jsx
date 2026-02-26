@@ -21,6 +21,9 @@ import {
     Check,
     Tag
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+
+const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#0ea5e9', '#3b82f6'];
 
 export default function Analysis() {
     // Current filter mode: 'all', 'week', 'month', 'range'
@@ -53,6 +56,8 @@ export default function Analysis() {
     const [editForm, setEditForm] = useState({ description: '', category: '' });
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [trendCategory, setTrendCategory] = useState(null);
 
     // Generate recent weeks for the selector
     const getWeekOptions = () => {
@@ -121,16 +126,25 @@ export default function Analysis() {
             if (filterType !== 'all') {
                 let start, end;
                 if (filterType === 'week') {
-                    start = selectedWeek;
+                    // Fetch 8 weeks of history for the trend chart
                     const d = new Date(selectedWeek);
-                    d.setDate(d.getDate() + 6);
-                    end = d.toISOString().split('T')[0];
+                    const historicalStart = new Date(d);
+                    historicalStart.setDate(d.getDate() - (7 * 7)); // 7 weeks prior
+                    start = historicalStart.toISOString().split('T')[0];
+
+                    const historicalEnd = new Date(d);
+                    historicalEnd.setDate(d.getDate() + 6);
+                    end = historicalEnd.toISOString().split('T')[0];
                 } else if (filterType === 'month') {
+                    // Fetch 6 months of history for the trend chart
                     const [year, month] = selectedMonth.split('-');
-                    start = `${year}-${month}-01`;
-                    // Get last day of month
-                    const d = new Date(year, month, 0);
-                    end = `${year}-${month}-${String(d.getDate()).padStart(2, '0')}`;
+                    const d = new Date(parseInt(year), parseInt(month) - 1, 1);
+                    const historicalStart = new Date(d);
+                    historicalStart.setMonth(d.getMonth() - 5); // 5 months prior
+                    start = historicalStart.toISOString().split('T')[0];
+
+                    const historicalEnd = new Date(parseInt(year), parseInt(month), 0);
+                    end = historicalEnd.toISOString().split('T')[0];
                 } else if (filterType === 'range') {
                     start = localStartDate;
                     end = localEndDate;
@@ -194,8 +208,63 @@ export default function Analysis() {
         setAdvancedFilters(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
     };
 
+    const handleCategoryClick = (category) => {
+        const isDeselect = selectedCategory === category;
+        setSelectedCategory(isDeselect ? null : category);
+
+        // Find existing category filter
+        const existingFilter = advancedFilters.find(f => f.field === 'category');
+
+        if (isDeselect) {
+            // Remove the filter if we are deselecting
+            if (existingFilter) {
+                removeFilter(existingFilter.id);
+            }
+        } else {
+            if (existingFilter) {
+                // Update existing filter
+                updateFilter(existingFilter.id, { value: [category], operator: 'is' });
+            } else {
+                // Add new filter
+                const id = Math.random().toString(36).substr(2, 9);
+                setAdvancedFilters([...advancedFilters, { id, field: 'category', operator: 'is', value: [category] }]);
+            }
+        }
+    };
+
+    // Sync selectedCategory when filters change manually
+    useEffect(() => {
+        const catFilter = advancedFilters.find(f => f.field === 'category');
+        if (!catFilter || !catFilter.value || catFilter.value.length !== 1 || catFilter.operator !== 'is') {
+            setSelectedCategory(null);
+        } else {
+            setSelectedCategory(catFilter.value[0]);
+        }
+    }, [advancedFilters]);
+
     const filteredTransactions = React.useMemo(() => {
+        // Calculate the specific date range for the active selection
+        let rangeStart, rangeEnd;
+        if (filterType === 'week') {
+            rangeStart = selectedWeek;
+            const d = new Date(selectedWeek);
+            d.setDate(d.getDate() + 6);
+            rangeEnd = d.toISOString().split('T')[0];
+        } else if (filterType === 'month') {
+            const [year, month] = selectedMonth.split('-');
+            rangeStart = `${year}-${month}-01`;
+            const d = new Date(year, month, 0);
+            rangeEnd = `${year}-${month}-${String(d.getDate()).padStart(2, '0')}`;
+        } else if (filterType === 'range') {
+            rangeStart = localStartDate;
+            rangeEnd = localEndDate;
+        }
+
         return transactions.filter(tx => {
+            // Apply date filtering locally if we fetched a wider window for the trend card
+            if (rangeStart && tx.date < rangeStart) return false;
+            if (rangeEnd && tx.date > rangeEnd) return false;
+
             for (const filter of advancedFilters) {
                 const { field, operator, value } = filter;
                 if (value === '' && !['is', 'isNot'].includes(operator)) continue;
@@ -238,6 +307,109 @@ export default function Analysis() {
             return true;
         });
     }, [transactions, advancedFilters]);
+
+    const categoryStats = React.useMemo(() => {
+        const stats = {};
+        let totalSpend = 0;
+
+        filteredTransactions.forEach(tx => {
+            const cat = tx.category || 'Uncategorized';
+            if (cat.toLowerCase() === 'income') return;
+
+            const amt = parseFloat(tx.amount || 0);
+
+            // Net Expenditure = Expenditures (negative) - Income (positive) 
+            // We flip the sign so that net cost/expenditure is shown as a positive value.
+            const spendAmount = -amt;
+            if (!stats[cat]) {
+                stats[cat] = { category: cat, spend: 0, count: 0 };
+            }
+            stats[cat].spend += spendAmount;
+            stats[cat].count += 1;
+            totalSpend += spendAmount;
+        });
+
+        const data = Object.values(stats).map(s => ({
+            ...s,
+            percent: totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0
+        })).sort((a, b) => b.spend - a.spend);
+
+        return { data, totalSpend };
+    }, [filteredTransactions]);
+
+    // Set initial trend category if none selected
+    useEffect(() => {
+        if (!trendCategory && categoryStats.data.length > 0) {
+            setTrendCategory(categoryStats.data[0].category);
+        }
+    }, [categoryStats.data]);
+
+    const trendData = React.useMemo(() => {
+        if (!trendCategory) return [];
+
+        const categoryTransactions = transactions.filter(tx => (tx.category || 'Uncategorized') === trendCategory);
+        const buckets = {};
+
+        // Determine bucketing strategy
+        let bucketType = 'month';
+        if (filterType === 'week') {
+            bucketType = 'week';
+        } else if (filterType === 'range') {
+            const start = new Date(localStartDate);
+            const end = new Date(localEndDate);
+            const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 60) bucketType = 'week';
+        } else if (filterType === 'all' && transactions.length > 0) {
+            // For 'all', check the actual range of transactions
+            const dates = transactions.map(t => new Date(t.date)).filter(d => !isNaN(d));
+            const minDate = new Date(Math.min(...dates));
+            const maxDate = new Date(Math.max(...dates));
+            const diffDays = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 60) bucketType = 'week';
+        }
+
+        categoryTransactions.forEach(tx => {
+            const date = new Date(tx.date);
+            if (isNaN(date)) return;
+
+            let key;
+            if (bucketType === 'month') {
+                key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            } else {
+                // ISO week or just start of week
+                const d = new Date(date);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+                const monday = new Date(d.setDate(diff));
+                key = monday.toISOString().split('T')[0];
+            }
+
+            if (!buckets[key]) buckets[key] = 0;
+            // Net Expenditure = -amount
+            buckets[key] -= parseFloat(tx.amount || 0);
+        });
+
+        return Object.entries(buckets)
+            .map(([date, amount]) => ({
+                date,
+                amount,
+                label: bucketType === 'month'
+                    ? new Date(date + '-01').toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+                    : new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+    }, [transactions, trendCategory, filterType, localStartDate, localEndDate]);
+
+    const handleTrendCategoryNav = (direction) => {
+        const categories = categoryStats.data.map(d => d.category);
+        const currentIndex = categories.indexOf(trendCategory);
+        let nextIndex = currentIndex + direction;
+
+        if (nextIndex < 0) nextIndex = categories.length - 1;
+        if (nextIndex >= categories.length) nextIndex = 0;
+
+        setTrendCategory(categories[nextIndex]);
+    };
 
     const handleEditStart = (tx) => {
         setEditingId(tx.id);
@@ -440,6 +612,183 @@ export default function Analysis() {
                     </div>
                 </div>
             </header>
+
+            {/* Top Charts Section */}
+            {!loading && categoryStats.data.length > 0 && (
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
+                    {/* Category Spend Card */}
+                    <div className="xl:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm relative z-20 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                            <h3 className="text-base font-bold text-slate-900">Category Breakdown</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Total: ${categoryStats.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
+                            <div className="md:col-span-8 border-r border-slate-100 bg-white pl-6 pb-6 pr-4">
+                                <div className="overflow-x-visible">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead className="sticky top-0 bg-white shadow-sm z-10">
+                                            <tr className="border-b border-slate-100 bg-white">
+                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
+                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Spend</th>
+                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right text-xs">Txns</th>
+                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">% of Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {categoryStats.data.map((row, idx) => {
+                                                const isSelected = selectedCategory === row.category;
+                                                const isDimmed = selectedCategory && !isSelected;
+
+                                                return (
+                                                    <tr
+                                                        key={row.category}
+                                                        onClick={() => handleCategoryClick(row.category)}
+                                                        className={`transition-all bg-white cursor-pointer ${isSelected ? 'bg-indigo-50/50' : isDimmed ? 'opacity-30 grayscale-[0.5]' : 'hover:bg-slate-50/50'
+                                                            }`}
+                                                    >
+                                                        <td className="px-5 py-3 text-sm font-semibold text-slate-700">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: isDimmed ? '#cbd5e1' : COLORS[idx % COLORS.length] }} />
+                                                                <span className="truncate">{row.category}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-5 py-3 text-sm font-bold text-slate-700 text-right">${row.spend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td className="px-5 py-3 text-sm font-medium text-slate-500 text-right">{row.count}</td>
+                                                        <td className="px-5 py-3 text-sm font-medium text-slate-500 text-right">
+                                                            <div className="flex items-center justify-end gap-3">
+                                                                <span className="w-12 text-right text-xs shrink-0">{row.percent.toFixed(1)}%</span>
+                                                                <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
+                                                                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${row.percent}%`, backgroundColor: isDimmed ? '#cbd5e1' : COLORS[idx % COLORS.length] }} />
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="md:col-span-4 flex flex-col items-center justify-center bg-slate-50/30 p-6 overflow-hidden">
+                                <div className="text-center mb-6">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Total Expenditures</span>
+                                    <span className="text-2xl font-black text-slate-900 tracking-tight">
+                                        ${categoryStats.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                <div className="w-full h-[230px] scale-110">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={categoryStats.data}
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius={30}
+                                                outerRadius={75}
+                                                paddingAngle={2}
+                                                dataKey="spend"
+                                                nameKey="category"
+                                                stroke="none"
+                                                onClick={(data) => handleCategoryClick(data.category)}
+                                                style={{ cursor: 'pointer' }}
+                                            >
+                                                {categoryStats.data.map((entry, index) => {
+                                                    const isSelected = selectedCategory === entry.category;
+                                                    const isDimmed = selectedCategory && !isSelected;
+                                                    return (
+                                                        <Cell
+                                                            key={`cell-${index}`}
+                                                            fill={isDimmed ? '#cbd5e1' : COLORS[index % COLORS.length]}
+                                                            style={{ opacity: isDimmed ? 0.3 : 1, transition: 'all 0.3s' }}
+                                                        />
+                                                    );
+                                                })}
+                                            </Pie>
+                                            <Tooltip
+                                                formatter={(value) => `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                                contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '11px' }}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Category Trend Card */}
+                    <div className="xl:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm relative z-20 overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-bold text-slate-900">Category Trend</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">Spending over time</p>
+                            </div>
+                            <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
+                                <button
+                                    onClick={() => handleTrendCategoryNav(-1)}
+                                    className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <select
+                                    value={trendCategory || ''}
+                                    onChange={(e) => setTrendCategory(e.target.value)}
+                                    className="text-xs font-bold text-slate-700 bg-transparent px-1 outline-none cursor-pointer max-w-[120px] truncate"
+                                >
+                                    {categoryStats.data.map(d => (
+                                        <option key={d.category} value={d.category}>{d.category}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={() => handleTrendCategoryNav(1)}
+                                    className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 p-6 flex flex-col min-h-[300px]">
+                            {trendData.length > 0 ? (
+                                <div className="flex-1 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                            <XAxis
+                                                dataKey="label"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 500 }}
+                                                dy={10}
+                                            />
+                                            <YAxis
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 500 }}
+                                                tickFormatter={(val) => `$${val}`}
+                                            />
+                                            <Tooltip
+                                                cursor={{ fill: '#f8fafc', radius: 4 }}
+                                                contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '11px' }}
+                                                formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Spend']}
+                                            />
+                                            <Bar
+                                                dataKey="amount"
+                                                fill={COLORS[categoryStats.data.findIndex(d => d.category === trendCategory) % COLORS.length] || '#6366f1'}
+                                                radius={[4, 4, 0, 0]}
+                                                barSize={32}
+                                            />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                                    <CircleSlash size={40} strokeWidth={1.5} className="mb-2 opacity-20" />
+                                    <p className="text-sm font-medium">No trend data available</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Main Content */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col relative z-20">
