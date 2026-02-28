@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import TransactionTable from './TransactionTable';
 import {
@@ -21,29 +21,59 @@ import {
     Check,
     Tag
 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#0ea5e9', '#3b82f6'];
 
 export default function Analysis() {
-    // Current filter mode: 'all', 'week', 'month', 'range'
-    const [filterType, setFilterType] = useState('range');
+    const location = useLocation();
+    const navigate = useNavigate();
 
     // Date Range from context (Default fallback or initial)
     const { startDate: ctxStartDate, endDate: ctxEndDate } = useOutletContext();
 
+    // Current filter mode: 'all', 'week', 'month', 'range'
+    const [filterType, setFilterType] = useState(() => {
+        if (location.state && location.state.filterType) return location.state.filterType;
+        if (location.state && location.state.startDate) return 'range';
+        return 'range';
+    });
+
     // Local state for specific filters
-    const [localStartDate, setLocalStartDate] = useState(ctxStartDate);
-    const [localEndDate, setLocalEndDate] = useState(ctxEndDate);
-    const [selectedWeek, setSelectedWeek] = useState('');
-    const [selectedMonth, setSelectedMonth] = useState('');
+    const [localStartDate, setLocalStartDate] = useState(() => {
+        if (location.state && location.state.startDate) return location.state.startDate;
+        return ctxStartDate;
+    });
+
+    const [localEndDate, setLocalEndDate] = useState(() => {
+        if (location.state && location.state.endDate) return location.state.endDate;
+        return ctxEndDate;
+    });
+
+    const [selectedWeek, setSelectedWeek] = useState(() => {
+        if (location.state && location.state.selectedWeek) return location.state.selectedWeek;
+        return '';
+    });
+
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        if (location.state && location.state.selectedMonth) return location.state.selectedMonth;
+        return '';
+    });
 
     // Table view state
     const [dateFormat, setDateFormat] = useState('standard');
-    // Column Filters state - transformed to dynamic array
-    const [advancedFilters, setAdvancedFilters] = useState([]);
+
+    // Column Filters state
+    const [advancedFilters, setAdvancedFilters] = useState(() => {
+        if (location.state && location.state.category) {
+            const id = Math.random().toString(36).substr(2, 9);
+            return [{ id, field: 'category', operator: 'is', value: [location.state.category] }];
+        }
+        return [];
+    });
+
     const [showFilterMenu, setShowFilterMenu] = useState(false);
-    const [activeValuePopover, setActiveValuePopover] = useState(null); // id of filter whose value popover is open
+    const [activeValuePopover, setActiveValuePopover] = useState(null);
 
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
@@ -57,12 +87,21 @@ export default function Analysis() {
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
-    const [trendCategory, setTrendCategory] = useState(null);
+
+    // Clear the location state so that manual refreshes don't re-trigger it
+    useEffect(() => {
+        if (location.state) {
+            navigate('.', { replace: true, state: null });
+        }
+    }, [location, navigate]);
+
 
     // Generate recent weeks for the selector
     const getWeekOptions = () => {
         const weeks = [];
         const now = new Date();
+        now.setHours(12, 0, 0, 0); // Anchor to midday to prevent timezone shift issues
+
         // Go back to the most recent Monday
         const current = new Date(now);
         current.setDate(now.getDate() - ((now.getDay() + 6) % 7));
@@ -89,8 +128,10 @@ export default function Analysis() {
     const getMonthOptions = () => {
         const months = [];
         const now = new Date();
+        now.setHours(12, 0, 0, 0); // Anchor to midday
+
         for (let i = 0; i < 12; i++) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1, 12, 0, 0, 0);
             const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             const label = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
             months.push({ value: val, label });
@@ -98,11 +139,15 @@ export default function Analysis() {
         return months;
     };
 
+    // Set defaults ONLY if not already set (e.g., by location.state)
     useEffect(() => {
         const weeks = getWeekOptions();
         const months = getMonthOptions();
-        if (!selectedWeek) setSelectedWeek(weeks[0].start);
-        if (!selectedMonth) setSelectedMonth(months[0].value);
+
+        // Use functional state updates to check the *current* state 
+        // before applying defaults, preventing overwrites of location.state
+        setSelectedWeek(prev => prev || weeks[0].start);
+        setSelectedMonth(prev => prev || months[0].value);
     }, []);
 
     useEffect(() => {
@@ -123,28 +168,19 @@ export default function Analysis() {
                 .select('*')
                 .order('date', { ascending: false });
 
+            let start, end;
+
             if (filterType !== 'all') {
-                let start, end;
                 if (filterType === 'week') {
-                    // Fetch 8 weeks of history for the trend chart
-                    const d = new Date(selectedWeek);
-                    const historicalStart = new Date(d);
-                    historicalStart.setDate(d.getDate() - (7 * 7)); // 7 weeks prior
-                    start = historicalStart.toISOString().split('T')[0];
-
-                    const historicalEnd = new Date(d);
-                    historicalEnd.setDate(d.getDate() + 6);
-                    end = historicalEnd.toISOString().split('T')[0];
+                    start = selectedWeek;
+                    const d = new Date(selectedWeek + 'T12:00:00');
+                    d.setDate(d.getDate() + 6);
+                    end = d.toISOString().split('T')[0];
                 } else if (filterType === 'month') {
-                    // Fetch 6 months of history for the trend chart
                     const [year, month] = selectedMonth.split('-');
-                    const d = new Date(parseInt(year), parseInt(month) - 1, 1);
-                    const historicalStart = new Date(d);
-                    historicalStart.setMonth(d.getMonth() - 5); // 5 months prior
-                    start = historicalStart.toISOString().split('T')[0];
-
-                    const historicalEnd = new Date(parseInt(year), parseInt(month), 0);
-                    end = historicalEnd.toISOString().split('T')[0];
+                    start = `${year}-${month}-01`;
+                    const d = new Date(parseInt(year), parseInt(month), 0);
+                    end = d.toISOString().split('T')[0];
                 } else if (filterType === 'range') {
                     start = localStartDate;
                     end = localEndDate;
@@ -212,7 +248,7 @@ export default function Analysis() {
         const isDeselect = selectedCategory === category;
         setSelectedCategory(isDeselect ? null : category);
 
-        // Find existing category filter
+        // Sync with advancedFilters for the table pill UI
         const existingFilter = advancedFilters.find(f => f.field === 'category');
 
         if (isDeselect) {
@@ -227,7 +263,7 @@ export default function Analysis() {
             } else {
                 // Add new filter
                 const id = Math.random().toString(36).substr(2, 9);
-                setAdvancedFilters([...advancedFilters, { id, field: 'category', operator: 'is', value: [category] }]);
+                setAdvancedFilters(prev => [...prev, { id, field: 'category', operator: 'is', value: [category] }]);
             }
         }
     };
@@ -242,29 +278,9 @@ export default function Analysis() {
         }
     }, [advancedFilters]);
 
-    const filteredTransactions = React.useMemo(() => {
-        // Calculate the specific date range for the active selection
-        let rangeStart, rangeEnd;
-        if (filterType === 'week') {
-            rangeStart = selectedWeek;
-            const d = new Date(selectedWeek);
-            d.setDate(d.getDate() + 6);
-            rangeEnd = d.toISOString().split('T')[0];
-        } else if (filterType === 'month') {
-            const [year, month] = selectedMonth.split('-');
-            rangeStart = `${year}-${month}-01`;
-            const d = new Date(year, month, 0);
-            rangeEnd = `${year}-${month}-${String(d.getDate()).padStart(2, '0')}`;
-        } else if (filterType === 'range') {
-            rangeStart = localStartDate;
-            rangeEnd = localEndDate;
-        }
-
+    // Base filtered transactions applying all advancedFilters except the UI category selection.
+    const baseFilteredTransactions = React.useMemo(() => {
         return transactions.filter(tx => {
-            // Apply date filtering locally if we fetched a wider window for the trend card
-            if (rangeStart && tx.date < rangeStart) return false;
-            if (rangeEnd && tx.date > rangeEnd) return false;
-
             for (const filter of advancedFilters) {
                 const { field, operator, value } = filter;
                 if (value === '' && !['is', 'isNot'].includes(operator)) continue;
@@ -288,6 +304,11 @@ export default function Analysis() {
                 }
 
                 if (field === 'category') {
+                    // Bypass the filtering for base stats if this is exactly the selectedCategory pill
+                    if (selectedCategory && operator === 'is' && value.length === 1 && value[0].toLowerCase() === selectedCategory.toLowerCase()) {
+                        continue;
+                    }
+
                     const cat = (txValue || 'Uncategorized').toLowerCase();
                     const valArray = (Array.isArray(value) ? value : [value]).map(v => v.toLowerCase());
                     const isMatch = valArray.includes(cat);
@@ -308,18 +329,25 @@ export default function Analysis() {
         });
     }, [transactions, advancedFilters]);
 
+    // Final filtered transactions for the table: apply selectedCategory on top of base filters.
+    const filteredTransactions = React.useMemo(() => {
+        if (!selectedCategory) return baseFilteredTransactions;
+        return baseFilteredTransactions.filter(tx => {
+            const cat = (tx.category || 'Uncategorized').toLowerCase();
+            return cat === selectedCategory.toLowerCase();
+        });
+    }, [baseFilteredTransactions, selectedCategory]);
+
     const categoryStats = React.useMemo(() => {
         const stats = {};
         let totalSpend = 0;
 
-        filteredTransactions.forEach(tx => {
+        // Use baseFilteredTransactions so that all categories are present for the UI.
+        baseFilteredTransactions.forEach(tx => {
             const cat = tx.category || 'Uncategorized';
             if (cat.toLowerCase() === 'income') return;
 
             const amt = parseFloat(tx.amount || 0);
-
-            // Net Expenditure = Expenditures (negative) - Income (positive) 
-            // We flip the sign so that net cost/expenditure is shown as a positive value.
             const spendAmount = -amt;
             if (!stats[cat]) {
                 stats[cat] = { category: cat, spend: 0, count: 0 };
@@ -329,87 +357,17 @@ export default function Analysis() {
             totalSpend += spendAmount;
         });
 
-        const data = Object.values(stats).map(s => ({
-            ...s,
-            percent: totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0
-        })).sort((a, b) => b.spend - a.spend);
+        const data = Object.values(stats)
+            .map(s => ({
+                ...s,
+                percent: totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0
+            }))
+            .sort((a, b) => b.spend - a.spend);
 
         return { data, totalSpend };
-    }, [filteredTransactions]);
+    }, [baseFilteredTransactions]);
 
-    // Set initial trend category if none selected
-    useEffect(() => {
-        if (!trendCategory && categoryStats.data.length > 0) {
-            setTrendCategory(categoryStats.data[0].category);
-        }
-    }, [categoryStats.data]);
 
-    const trendData = React.useMemo(() => {
-        if (!trendCategory) return [];
-
-        const categoryTransactions = transactions.filter(tx => (tx.category || 'Uncategorized') === trendCategory);
-        const buckets = {};
-
-        // Determine bucketing strategy
-        let bucketType = 'month';
-        if (filterType === 'week') {
-            bucketType = 'week';
-        } else if (filterType === 'range') {
-            const start = new Date(localStartDate);
-            const end = new Date(localEndDate);
-            const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 60) bucketType = 'week';
-        } else if (filterType === 'all' && transactions.length > 0) {
-            // For 'all', check the actual range of transactions
-            const dates = transactions.map(t => new Date(t.date)).filter(d => !isNaN(d));
-            const minDate = new Date(Math.min(...dates));
-            const maxDate = new Date(Math.max(...dates));
-            const diffDays = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 60) bucketType = 'week';
-        }
-
-        categoryTransactions.forEach(tx => {
-            const date = new Date(tx.date);
-            if (isNaN(date)) return;
-
-            let key;
-            if (bucketType === 'month') {
-                key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            } else {
-                // ISO week or just start of week
-                const d = new Date(date);
-                const day = d.getDay();
-                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-                const monday = new Date(d.setDate(diff));
-                key = monday.toISOString().split('T')[0];
-            }
-
-            if (!buckets[key]) buckets[key] = 0;
-            // Net Expenditure = -amount
-            buckets[key] -= parseFloat(tx.amount || 0);
-        });
-
-        return Object.entries(buckets)
-            .map(([date, amount]) => ({
-                date,
-                amount,
-                label: bucketType === 'month'
-                    ? new Date(date + '-01').toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
-                    : new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-            }))
-            .sort((a, b) => a.date.localeCompare(b.date));
-    }, [transactions, trendCategory, filterType, localStartDate, localEndDate]);
-
-    const handleTrendCategoryNav = (direction) => {
-        const categories = categoryStats.data.map(d => d.category);
-        const currentIndex = categories.indexOf(trendCategory);
-        let nextIndex = currentIndex + direction;
-
-        if (nextIndex < 0) nextIndex = categories.length - 1;
-        if (nextIndex >= categories.length) nextIndex = 0;
-
-        setTrendCategory(categories[nextIndex]);
-    };
 
     const handleEditStart = (tx) => {
         setEditingId(tx.id);
@@ -617,7 +575,7 @@ export default function Analysis() {
             {!loading && categoryStats.data.length > 0 && (
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
                     {/* Category Spend Card */}
-                    <div className="xl:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm relative z-20 overflow-hidden">
+                    <div className="xl:col-span-12 bg-white rounded-2xl border border-slate-200 shadow-sm relative z-20 overflow-hidden">
                         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
                             <h3 className="text-base font-bold text-slate-900">Category Breakdown</h3>
                             <p className="text-xs text-slate-500 mt-0.5">Total: ${categoryStats.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -680,6 +638,7 @@ export default function Analysis() {
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
+                                                isAnimationActive={false}
                                                 data={categoryStats.data}
                                                 cx="50%"
                                                 cy="50%"
@@ -691,6 +650,31 @@ export default function Analysis() {
                                                 stroke="none"
                                                 onClick={(data) => handleCategoryClick(data.category)}
                                                 style={{ cursor: 'pointer' }}
+                                                labelLine={false}
+                                                label={(props) => {
+                                                    const { cx, cy, midAngle, outerRadius, value, payload, percent } = props;
+                                                    if (!selectedCategory || selectedCategory !== payload.category) return null;
+
+                                                    const RADIAN = Math.PI / 180;
+                                                    // Place label roughly 15px past the outer edge of the slice
+                                                    const radius = outerRadius + 15;
+                                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+                                                    return (
+                                                        <text
+                                                            x={x}
+                                                            y={y}
+                                                            fill="#475569"
+                                                            textAnchor={x > cx ? 'start' : 'end'}
+                                                            dominantBaseline="central"
+                                                            fontSize="12"
+                                                            fontWeight="bold"
+                                                        >
+                                                            {`${payload.percent.toFixed(1)}%`}
+                                                        </text>
+                                                    );
+                                                }}
                                             >
                                                 {categoryStats.data.map((entry, index) => {
                                                     const isSelected = selectedCategory === entry.category;
@@ -715,78 +699,7 @@ export default function Analysis() {
                         </div>
                     </div>
 
-                    {/* Category Trend Card */}
-                    <div className="xl:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm relative z-20 overflow-hidden flex flex-col">
-                        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-base font-bold text-slate-900">Category Trend</h3>
-                                <p className="text-xs text-slate-500 mt-0.5">Spending over time</p>
-                            </div>
-                            <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
-                                <button
-                                    onClick={() => handleTrendCategoryNav(-1)}
-                                    className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors"
-                                >
-                                    <ChevronLeft size={18} />
-                                </button>
-                                <select
-                                    value={trendCategory || ''}
-                                    onChange={(e) => setTrendCategory(e.target.value)}
-                                    className="text-xs font-bold text-slate-700 bg-transparent px-1 outline-none cursor-pointer max-w-[120px] truncate"
-                                >
-                                    {categoryStats.data.map(d => (
-                                        <option key={d.category} value={d.category}>{d.category}</option>
-                                    ))}
-                                </select>
-                                <button
-                                    onClick={() => handleTrendCategoryNav(1)}
-                                    className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors"
-                                >
-                                    <ChevronRight size={18} />
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 p-6 flex flex-col min-h-[300px]">
-                            {trendData.length > 0 ? (
-                                <div className="flex-1 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                            <XAxis
-                                                dataKey="label"
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 500 }}
-                                                dy={10}
-                                            />
-                                            <YAxis
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 500 }}
-                                                tickFormatter={(val) => `$${val}`}
-                                            />
-                                            <Tooltip
-                                                cursor={{ fill: '#f8fafc', radius: 4 }}
-                                                contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '11px' }}
-                                                formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Spend']}
-                                            />
-                                            <Bar
-                                                dataKey="amount"
-                                                fill={COLORS[categoryStats.data.findIndex(d => d.category === trendCategory) % COLORS.length] || '#6366f1'}
-                                                radius={[4, 4, 0, 0]}
-                                                barSize={32}
-                                            />
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                                    <CircleSlash size={40} strokeWidth={1.5} className="mb-2 opacity-20" />
-                                    <p className="text-sm font-medium">No trend data available</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+
                 </div>
             )}
 
