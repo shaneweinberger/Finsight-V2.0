@@ -19,7 +19,8 @@ import {
     ChevronDown,
     CircleSlash,
     Check,
-    Tag
+    Tag,
+    Edit2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -84,8 +85,9 @@ export default function Analysis() {
     const [transactions, setTransactions] = useState([]);
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [editingId, setEditingId] = useState(null);
-    const [editForm, setEditForm] = useState({ description: '', category: '' });
+    const [isEditingMode, setIsEditingMode] = useState(false);
+    const [editDrafts, setEditDrafts] = useState({});
+    const [isSavingEdits, setIsSavingEdits] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -227,11 +229,11 @@ export default function Analysis() {
         if (field === 'amount') operator = 'gt';
         if (field === 'transaction_method') {
             operator = 'is';
-            value = ['credit'];
+            value = [];
         }
         if (field === 'category') {
             operator = 'is';
-            value = ['Uncategorized'];
+            value = [];
         }
 
         setAdvancedFilters([...advancedFilters, { id, field, operator, value }]);
@@ -300,6 +302,7 @@ export default function Analysis() {
                 if (field === 'transaction_method') {
                     const type = (txValue || '').toLowerCase();
                     const valArray = Array.isArray(value) ? value : [value];
+                    if (valArray.length === 0) continue;
                     const isMatch = valArray.map(v => v.toLowerCase()).includes(type);
                     if (operator === 'is' && !isMatch) return false;
                     if (operator === 'isNot' && isMatch) return false;
@@ -311,9 +314,11 @@ export default function Analysis() {
                         continue;
                     }
 
+                    const valArray = Array.isArray(value) ? value : [value];
+                    if (valArray.length === 0) continue;
+
                     const cat = (txValue || 'Uncategorized').toLowerCase();
-                    const valArray = (Array.isArray(value) ? value : [value]).map(v => v.toLowerCase());
-                    const isMatch = valArray.includes(cat);
+                    const isMatch = valArray.map(v => v.toLowerCase()).includes(cat);
                     if (operator === 'is' && !isMatch) return false;
                     if (operator === 'isNot' && isMatch) return false;
                 }
@@ -381,39 +386,67 @@ export default function Analysis() {
 
 
 
-    const handleEditStart = (tx) => {
-        setEditingId(tx.id);
-        setEditForm({ description: tx.description, category: tx.category });
+    const handleBulkEditToggle = () => {
+        setIsEditingMode(true);
+        setEditDrafts({});
     };
 
-    const handleEditCancel = () => {
-        setEditingId(null);
+    const handleBulkEditCancel = () => {
+        setIsEditingMode(false);
+        setEditDrafts({});
     };
 
-    const onEditChange = (field, value) => {
-        setEditForm(prev => ({ ...prev, [field]: value }));
+    const onDraftChange = (id, field, value) => {
+        setEditDrafts(prev => ({
+            ...prev,
+            [id]: {
+                ...prev[id],
+                [field]: value
+            }
+        }));
     };
 
-    const handleEditSave = async (id) => {
+    const handleBulkEditSave = async () => {
+        const idsToUpdate = Object.keys(editDrafts);
+        if (idsToUpdate.length === 0) {
+            setIsEditingMode(false);
+            return;
+        }
+
+        setIsSavingEdits(true);
         try {
-            const { error } = await supabase
-                .from('silver_transactions')
-                .update({
-                    description: editForm.description,
-                    category: editForm.category,
-                    is_edited: true,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', id);
+            // Update items locally first for immediate UI response
+            setTransactions(prev => prev.map(t => {
+                if (editDrafts[t.id]) {
+                    return { ...t, ...editDrafts[t.id], is_edited: true };
+                }
+                return t;
+            }));
 
-            if (error) throw error;
+            // Prepare Supabase updates
+            const updates = idsToUpdate.map(id => ({
+                id,
+                ...editDrafts[id],
+                is_edited: true,
+                updated_at: new Date().toISOString()
+            }));
 
-            setTransactions(prev => prev.map(t =>
-                t.id === id ? { ...t, ...editForm, is_edited: true } : t
-            ));
-            setEditingId(null);
+            // Use the standard update approach in Supabase: loop through and update sequentially
+            // or use a Postgres function if one exists, but sequential updates are fine for UI batches
+            for (const update of updates) {
+                const { error } = await supabase
+                    .from('silver_transactions')
+                    .update(update)
+                    .eq('id', update.id);
+                if (error) console.error('Error updating transaction', update.id, error);
+            }
+
+            setIsEditingMode(false);
+            setEditDrafts({});
         } catch (err) {
-            console.error('Error updating transaction:', err);
+            console.error('Error in bulk edit save:', err);
+        } finally {
+            setIsSavingEdits(false);
         }
     };
 
@@ -716,7 +749,7 @@ export default function Analysis() {
             )}
 
             {/* Main Content */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col relative z-20">
+            <div className={`bg-white rounded-2xl flex flex-col relative z-20 transition-all duration-300 ${isEditingMode ? 'border border-indigo-400 ring-4 ring-indigo-50 shadow-md' : 'border border-slate-200 shadow-sm'}`}>
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                     <div className="flex items-center gap-4">
                         <h3 className="text-lg font-bold text-slate-900">Filtered Transactions</h3>
@@ -752,7 +785,7 @@ export default function Analysis() {
                                     </div>
                                     {[
                                         { field: 'description', label: 'Description', icon: Search },
-                                        { field: 'transaction_method', label: 'Type', icon: Filter },
+                                        { field: 'transaction_method', label: 'Account', icon: Filter },
                                         { field: 'category', label: 'Category', icon: Tag },
                                         { field: 'amount', label: 'Amount', icon: ArrowUpDown }
                                     ].map(opt => (
@@ -773,7 +806,7 @@ export default function Analysis() {
                             )}
                         </div>
 
-                        {selectedIds.size > 0 && (
+                        {selectedIds.size > 0 && !isEditingMode && (
                             <button
                                 onClick={handleDeleteSelected}
                                 disabled={isDeleting}
@@ -783,6 +816,35 @@ export default function Analysis() {
                                 Delete Selected ({selectedIds.size})
                             </button>
                         )}
+
+                        {isEditingMode ? (
+                            <>
+                                <button
+                                    onClick={handleBulkEditSave}
+                                    disabled={isSavingEdits}
+                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold transition-all shadow-sm animate-in zoom-in-95 duration-200"
+                                >
+                                    {isSavingEdits ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                                    Save Changes {Object.keys(editDrafts).length > 0 ? `(${Object.keys(editDrafts).length})` : ''}
+                                </button>
+                                <button
+                                    onClick={handleBulkEditCancel}
+                                    disabled={isSavingEdits}
+                                    className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                onClick={handleBulkEditToggle}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 border border-transparent transition-all"
+                            >
+                                <Edit2 size={16} />
+                                Edit
+                            </button>
+                        )}
+
                         <button className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 transition-all shadow-none hover:shadow-sm">
                             <Download size={20} />
                         </button>
@@ -934,12 +996,9 @@ export default function Analysis() {
                                     itemsPerPage === 'all' ? undefined : currentPage * itemsPerPage
                                 )}
                                 categories={categories}
-                                editingId={editingId}
-                                editForm={editForm}
-                                onEditStart={handleEditStart}
-                                onEditSave={handleEditSave}
-                                onEditCancel={handleEditCancel}
-                                onEditChange={onEditChange}
+                                isEditingMode={isEditingMode}
+                                editDrafts={editDrafts}
+                                onDraftChange={onDraftChange}
                                 selectedIds={selectedIds}
                                 onSelectToggle={handleSelectToggle}
                                 onSelectAll={handleSelectAll}

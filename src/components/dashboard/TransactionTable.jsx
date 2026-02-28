@@ -4,12 +4,9 @@ import { Edit2, Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Calendar } fro
 export default function TransactionTable({
     transactions,
     categories,
-    editingId,
-    editForm,
-    onEditStart,
-    onEditSave,
-    onEditCancel,
-    onEditChange,
+    isEditingMode,
+    editDrafts = {},
+    onDraftChange,
     selectedIds = new Set(),
     onSelectToggle,
     onSelectAll,
@@ -176,7 +173,6 @@ export default function TransactionTable({
                                 </div>
                             </th>
                         )}
-                        <th className="px-6 py-4"></th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -199,11 +195,12 @@ export default function TransactionTable({
                                 {formatDate(tx.date)}
                             </td>
                             <td className="px-6 py-4">
-                                {editingId === tx.id ? (
+                                {isEditingMode ? (
                                     <input
-                                        className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none"
-                                        value={editForm.description}
-                                        onChange={(e) => onEditChange('description', e.target.value)}
+                                        className="w-full bg-transparent p-0 border-b border-dashed border-slate-400 hover:border-indigo-400 focus:border-solid focus:border-indigo-600 outline-none text-sm font-medium text-slate-900 transition-colors"
+                                        value={editDrafts[tx.id]?.description ?? tx.description}
+                                        onChange={(e) => onDraftChange(tx.id, 'description', e.target.value)}
+                                        placeholder="Description..."
                                     />
                                 ) : (
                                     <span className="text-sm font-medium text-slate-900 break-words block">
@@ -220,11 +217,11 @@ export default function TransactionTable({
                                 </span>
                             </td>
                             <td className="px-6 py-4">
-                                {editingId === tx.id ? (
+                                {isEditingMode ? (
                                     <select
-                                        className="w-full px-2 py-1 text-sm border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-100 outline-none bg-white"
-                                        value={editForm.category}
-                                        onChange={(e) => onEditChange('category', e.target.value)}
+                                        className="appearance-none inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 focus:bg-white border border-transparent focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer transition-all"
+                                        value={editDrafts[tx.id]?.category ?? (tx.category || '')}
+                                        onChange={(e) => onDraftChange(tx.id, 'category', e.target.value)}
                                     >
                                         <option value="">Uncategorized</option>
                                         {categories.map(cat => (
@@ -266,25 +263,6 @@ export default function TransactionTable({
                                     </td>
                                 );
                             })()}
-                            <td className="px-6 py-4 text-right">
-                                {editingId === tx.id ? (
-                                    <div className="flex items-center justify-end gap-2">
-                                        <button onClick={() => onEditSave(tx.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded">
-                                            <Check size={16} />
-                                        </button>
-                                        <button onClick={onEditCancel} className="p-1 text-rose-600 hover:bg-rose-50 rounded">
-                                            <X size={16} />
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={() => onEditStart(tx)}
-                                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                                    >
-                                        <Edit2 size={14} />
-                                    </button>
-                                )}
-                            </td>
                         </tr>
                     ))}
                 </tbody>
