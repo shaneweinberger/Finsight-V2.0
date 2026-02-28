@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Edit2, Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Calendar } from 'lucide-react';
 
 export default function TransactionTable({
@@ -15,9 +15,18 @@ export default function TransactionTable({
     onSelectAll,
     onToggleDateFormat,
     limit,
-    dateFormat = 'standard'
+    dateFormat = 'standard',
+    selectedCategoryInfo = null
 }) {
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+
+    // Auto-sort by amount descending when a category is focused in the overview
+    // Note: Since expenditures are negative numbers, 'asc' actually puts the largest expenditures at the top of the list!
+    useEffect(() => {
+        if (selectedCategoryInfo) {
+            setSortConfig({ key: 'amount', direction: 'asc' });
+        }
+    }, [selectedCategoryInfo?.category]);
 
     const formatDate = (dateString) => {
         const date = new Date(dateString);
@@ -160,6 +169,13 @@ export default function TransactionTable({
                                 Amount <SortIndicator columnKey="amount" />
                             </div>
                         </th>
+                        {selectedCategoryInfo && (
+                            <th className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                    % of Category
+                                </div>
+                            </th>
+                        )}
                         <th className="px-6 py-4"></th>
                     </tr>
                 </thead>
@@ -225,6 +241,31 @@ export default function TransactionTable({
                                 }`}>
                                 {parseFloat(tx.amount) > 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
                             </td>
+                            {selectedCategoryInfo && (() => {
+                                const percent = selectedCategoryInfo.spend > 0
+                                    ? (Math.abs(tx.amount) / selectedCategoryInfo.spend) * 100
+                                    : 0;
+                                return (
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center justify-end gap-3 ml-auto">
+                                            <span className="text-xs font-bold text-slate-700 w-10 text-right">
+                                                {percent.toFixed(1)}%
+                                            </span>
+                                            <div className="relative w-16 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                                {/* Background proportion bar */}
+                                                <div
+                                                    className="absolute left-0 top-0 bottom-0 transition-all duration-700 rounded-full"
+                                                    style={{
+                                                        width: `${Math.min(percent, 100)}%`,
+                                                        backgroundColor: selectedCategoryInfo.color,
+                                                        opacity: 0.6
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </td>
+                                );
+                            })()}
                             <td className="px-6 py-4 text-right">
                                 {editingId === tx.id ? (
                                     <div className="flex items-center justify-end gap-2">

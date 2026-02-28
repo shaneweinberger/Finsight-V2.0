@@ -36,7 +36,7 @@ export default function Analysis() {
     const [filterType, setFilterType] = useState(() => {
         if (location.state && location.state.filterType) return location.state.filterType;
         if (location.state && location.state.startDate) return 'range';
-        return 'range';
+        return 'month';
     });
 
     // Local state for specific filters
@@ -57,11 +57,13 @@ export default function Analysis() {
 
     const [selectedMonth, setSelectedMonth] = useState(() => {
         if (location.state && location.state.selectedMonth) return location.state.selectedMonth;
-        return '';
+        const now = new Date();
+        now.setHours(12, 0, 0, 0); // Anchor to midday
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
 
     // Table view state
-    const [dateFormat, setDateFormat] = useState('standard');
+    const [dateFormat, setDateFormat] = useState('friendly');
 
     // Column Filters state
     const [advancedFilters, setAdvancedFilters] = useState(() => {
@@ -366,6 +368,16 @@ export default function Analysis() {
 
         return { data, totalSpend };
     }, [baseFilteredTransactions]);
+
+    const selectedCategoryInfo = React.useMemo(() => {
+        if (!selectedCategory || !categoryStats.data.length) return null;
+        const statsIndex = categoryStats.data.findIndex(s => s.category.toLowerCase() === selectedCategory.toLowerCase());
+        if (statsIndex === -1) return null;
+        return {
+            ...categoryStats.data[statsIndex],
+            color: COLORS[statsIndex % COLORS.length]
+        };
+    }, [selectedCategory, categoryStats.data]);
 
 
 
@@ -933,6 +945,7 @@ export default function Analysis() {
                                 onSelectAll={handleSelectAll}
                                 dateFormat={dateFormat}
                                 onToggleDateFormat={() => setDateFormat(prev => prev === 'standard' ? 'friendly' : 'standard')}
+                                selectedCategoryInfo={selectedCategoryInfo}
                             />
                         </div>
 
