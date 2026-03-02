@@ -109,21 +109,56 @@ export default function AIProcessing() {
     // ── Computed dirty state ─────────────────────────────────────────────────
     const snapshotCats = (arr) => arr.map(c => ({ id: c.id, name: c.name, color: c.color || '' }));
     const snapshotRules = (arr) => arr.map(r => ({ id: r.id, name: r.name, rule_text: r.rule_text || '' }));
-    const isDirty = (() => {
+    // ── Computed change summary ─────────────────────────────────────────────
+    const changeSummary = (() => {
         const curCats = snapshotCats(categories);
         const curRules = snapshotRules(rules);
-        if (curCats.length !== baselineCats.current.length) return true;
-        if (curRules.length !== baselineRules.current.length) return true;
-        for (let i = 0; i < curCats.length; i++) {
-            const a = curCats[i], b = baselineCats.current[i];
-            if (!b || a.id !== b.id || a.name !== b.name || a.color !== b.color) return true;
+
+        const newCats = curCats.filter(c => !baselineCats.current.some(bc => bc.id === c.id)).length;
+        const updatedCats = curCats.filter(c => {
+            const bc = baselineCats.current.find(b => b.id === c.id);
+            return bc && (bc.name !== c.name || bc.color !== c.color);
+        }).length;
+        const deletedCats = baselineCats.current.filter(bc => !curCats.some(c => c.id === bc.id)).length;
+
+        const newRules = curRules.filter(r => !baselineRules.current.some(br => br.id === r.id)).length;
+        const updatedRules = curRules.filter(r => {
+            const br = baselineRules.current.find(b => b.id === r.id);
+            return br && (br.name !== r.name || br.rule_text !== r.rule_text);
+        }).length;
+        const deletedRules = baselineRules.current.filter(br => !curRules.some(r => r.id === br.id)).length;
+
+        const hasChanges = newCats > 0 || updatedCats > 0 || deletedCats > 0 || newRules > 0 || updatedRules > 0 || deletedRules > 0;
+
+        // Build a friendly description
+        const parts = [];
+        const catChanges = [];
+        if (newCats > 0) catChanges.push('new');
+        if (updatedCats > 0) catChanges.push('updated');
+        if (deletedCats > 0) catChanges.push('removed');
+
+        if (catChanges.length > 0) {
+            parts.push(`${catChanges.join('/')} categor${newCats + updatedCats + deletedCats === 1 ? 'y' : 'ies'}`);
         }
-        for (let i = 0; i < curRules.length; i++) {
-            const a = curRules[i], b = baselineRules.current[i];
-            if (!b || a.id !== b.id || a.name !== b.name || a.rule_text !== b.rule_text) return true;
+
+        const ruleChanges = [];
+        if (newRules > 0) ruleChanges.push('new');
+        if (updatedRules > 0) ruleChanges.push('updated');
+        if (deletedRules > 0) ruleChanges.push('removed');
+
+        if (ruleChanges.length > 0) {
+            parts.push(`${ruleChanges.join('/')} rule${newRules + updatedRules + deletedRules === 1 ? '' : 's'}`);
         }
-        return false;
+
+        let description = "Select files to reprocess";
+        if (parts.length > 0) {
+            description = `Select files to reprocess with your ${parts.join(' and ')}.`;
+        }
+
+        return { hasChanges, description };
     })();
+
+    const isDirty = changeSummary.hasChanges;
 
     // ── Confirmation modal state ─────────────────────────────────────────────
     const [confirmModal, setConfirmModal] = useState(null);
@@ -806,7 +841,7 @@ export default function AIProcessing() {
                         <div className="px-6 py-5 border-b border-slate-100">
                             <h3 className="text-lg font-bold text-slate-900">Reprocess Raw Files</h3>
                             <p className="text-sm text-slate-500 mt-1">
-                                Select which raw transaction files to reprocess with your new/updated categorie(s)/rule(s).
+                                {changeSummary.description}
                             </p>
                         </div>
 
