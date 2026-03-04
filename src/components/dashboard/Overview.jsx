@@ -412,328 +412,388 @@ export default function Overview() {
                 </div>
             </header>
 
-            {/* ── Top-Level Controls ──────────────────────────────────────── */}
-            <div className="sticky top-0 z-20 flex flex-col md:flex-row gap-6 bg-white/80 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-sm items-center">
-                <div className="flex flex-wrap items-center gap-6 w-full">
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[320px]">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Range</label>
-                        <div className="flex bg-slate-100/80 p-1 rounded-xl w-full border border-slate-200/50">
-                            {['30D', '3M', '6M', 'YTD', '1Y', 'Custom'].map(range => (
-                                <button
-                                    key={range}
-                                    onClick={() => setTimeRange(range)}
-                                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${timeRange === range
-                                        ? 'bg-white text-accent-light-text shadow-sm ring-1 ring-slate-900/5'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-                                >
-                                    {range}
-                                </button>
-                            ))}
+            {/* ── Empty state — no transactions yet ───────────────────────── */}
+            {transactions.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-8 py-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Hero message */}
+                    <div className="text-center max-w-lg">
+                        <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-5">
+                            <LayoutDashboard size={32} className="text-accent opacity-70" />
                         </div>
+                        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight mb-2">
+                            Welcome {profile?.first_name ? `${profile.first_name} ` : ''}— let's get your finances set up
+                        </h2>
+                        <p className="text-slate-500 text-sm leading-relaxed">
+                            You don't have any transactions yet. Follow these two steps to get started.
+                        </p>
                     </div>
 
-                    {timeRange === 'Custom' && (
-                        <div className="flex flex-col gap-1.5 flex-1 min-w-[280px]">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom Dates</label>
-                            <div className="flex items-center gap-2">
-                                <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)}
-                                    className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-text" />
-                                <span className="text-slate-400 text-sm font-medium">to</span>
-                                <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)}
-                                    className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-text" />
+                    {/* Two action cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
+                        {/* Step 1 — AI Processing */}
+                        <button
+                            onClick={() => navigate('/dashboard/ai-processing')}
+                            className="group text-left p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-accent hover:shadow-md transition-all duration-200"
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
+                                <Activity size={20} className="text-accent" />
                             </div>
-                        </div>
-                    )}
-
-                    <div className="flex flex-col gap-1.5 min-w-[140px]">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Group By</label>
-                        <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-pointer">
-                            <option value="Daily">Daily</option>
-                            <option value="Weekly">Weekly</option>
-                            <option value="Monthly">Monthly</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className="w-full md:w-auto flex md:ml-auto items-center justify-between md:justify-end gap-6 border-t md:border-t-0 md:border-l border-slate-100 pt-5 md:pt-0 md:pl-6 shrink-0 h-full">
-                    <label className="flex items-center gap-3 cursor-pointer group">
-                        <div className="relative flex items-center">
-                            <input type="checkbox" className="sr-only" checked={focusCategory} onChange={() => setFocusCategory(!focusCategory)} />
-                            <div className={`block w-11 h-6 rounded-full transition-all duration-300 ease-in-out ${focusCategory ? 'bg-accent shadow-inner' : 'bg-slate-200 shadow-inner'}`} />
-                            <div className={`absolute left-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 ease-in-out shadow-sm ${focusCategory ? 'transform translate-x-5' : ''}`} />
-                        </div>
-                        <span className="text-sm font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Focus on Category</span>
-                    </label>
-
-                    {focusCategory && (
-                        <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
-                            className="bg-accent-light/50 border border-accent-ring text-accent-light-text font-bold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block min-w-[160px] p-2 outline-none cursor-pointer animate-in fade-in slide-in-from-right-4 duration-300">
-                            {categoryNames.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                            <option value="Uncategorized">Uncategorized</option>
-                        </select>
-                    )}
-                </div>
-            </div>
-
-            {/* ── Summary Grid ────────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {dynamicInsights ? (
-                    <>
-                        <InsightCard title="Spending Trend" icon={<TrendingUp size={12} />}
-                            primaryMsg={<>{dynamicInsights.trend.value > 0 ? <ArrowUpRight size={18} /> : dynamicInsights.trend.value < 0 ? <ArrowDownRight size={18} /> : null}{Math.abs(dynamicInsights.trend.value).toFixed(1)}%</>}
-                            subMsg={dynamicInsights.trend.label}
-                            colorClass={dynamicInsights.trend.value > 0 ? 'text-rose-600' : dynamicInsights.trend.value < 0 ? 'text-emerald-600' : 'text-slate-600'} />
-                        <InsightCard title="Largest Increase" icon={<ArrowUpRight size={12} className="text-rose-500" />}
-                            primaryMsg={dynamicInsights.increase ? `${dynamicInsights.increase.category} +${Math.round(dynamicInsights.increase.value)}%` : 'No major increases'}
-                            subMsg={dynamicInsights.increase ? dynamicInsights.increase.label : ' '}
-                            colorClass={dynamicInsights.increase ? 'text-slate-800' : 'text-slate-400'} />
-                        <InsightCard title="Largest Decrease" icon={<ArrowDownRight size={12} className="text-emerald-500" />}
-                            primaryMsg={dynamicInsights.decrease ? `${dynamicInsights.decrease.category} ${Math.round(dynamicInsights.decrease.value)}%` : 'No major decreases'}
-                            subMsg={dynamicInsights.decrease ? dynamicInsights.decrease.label : ' '}
-                            colorClass={dynamicInsights.decrease ? 'text-slate-800' : 'text-slate-400'} />
-                        <InsightCard title="Anomaly Detection" icon={<Activity size={12} className={dynamicInsights.anomaly.color} />}
-                            primaryMsg={dynamicInsights.anomaly.label} subMsg={dynamicInsights.anomaly.value}
-                            colorClass={dynamicInsights.anomaly.color} bgClass={dynamicInsights.anomaly.bg} />
-                    </>
-                ) : (
-                    <div className="col-span-1 md:col-span-2 lg:col-span-4 p-6 bg-slate-50 text-slate-400 font-medium text-sm rounded-xl border border-slate-200 text-center flex items-center justify-center gap-2">
-                        <Activity size={16} /> Need at least 2 complete intervals to generate comparative insights.
-                    </div>
-                )}
-            </div>
-
-            {/* ── Spending Trends Chart ────────────────────────────────────── */}
-            <div className="grid grid-cols-1 gap-8">
-                <div className="bg-surface-card p-6 rounded-2xl border border-divider shadow-sm flex flex-col min-h-[450px]">
-
-                    {/* Chart header + draggable pill row */}
-                    <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
-                        <div>
-                            <h3 className="text-lg font-bold text-slate-900">Spending Trends</h3>
-                            <p className="text-sm text-slate-500">
-                                {focusCategory
-                                    ? 'Click a bar to see details and actions.'
-                                    : 'Drag pills to reorder stack. Click a segment to see details.'}
+                            <div className="text-[10px] font-bold text-accent uppercase tracking-widest mb-1">Step 1</div>
+                            <h3 className="text-base font-extrabold text-slate-900 mb-1">Configure Categories & Rules</h3>
+                            <p className="text-sm text-slate-500 leading-relaxed">
+                                Set up your spending categories and AI rules so transactions are automatically sorted when processed.
                             </p>
+                            <div className="mt-4 text-xs font-bold text-accent flex items-center gap-1 group-hover:gap-2 transition-all">
+                                Go to AI Processing <ArrowUpRight size={12} />
+                            </div>
+                        </button>
+
+                        {/* Step 2 — Upload */}
+                        <button
+                            onClick={() => navigate('/dashboard/processing')}
+                            className="group text-left p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-accent hover:shadow-md transition-all duration-200"
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
+                                <ArrowUpRight size={20} className="text-accent" />
+                            </div>
+                            <div className="text-[10px] font-bold text-accent uppercase tracking-widest mb-1">Step 2</div>
+                            <h3 className="text-base font-extrabold text-slate-900 mb-1">Upload & Process Transactions</h3>
+                            <p className="text-sm text-slate-500 leading-relaxed">
+                                Import a CSV from your bank and run AI processing to categorize and clean your transaction data.
+                            </p>
+                            <div className="mt-4 text-xs font-bold text-accent flex items-center gap-1 group-hover:gap-2 transition-all">
+                                Go to Uploads <ArrowUpRight size={12} />
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Main overview content (hidden until transactions exist) ──── */}
+            {transactions.length > 0 && (<>
+                {/* ── Top-Level Controls ──────────────────────────────────────── */}
+                <div className="sticky top-0 z-20 flex flex-col md:flex-row gap-6 bg-white/80 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-sm items-center">
+                    <div className="flex flex-wrap items-center gap-6 w-full">
+                        <div className="flex flex-col gap-1.5 flex-1 min-w-[320px]">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Range</label>
+                            <div className="flex bg-slate-100/80 p-1 rounded-xl w-full border border-slate-200/50">
+                                {['30D', '3M', '6M', 'YTD', '1Y', 'Custom'].map(range => (
+                                    <button
+                                        key={range}
+                                        onClick={() => setTimeRange(range)}
+                                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${timeRange === range
+                                            ? 'bg-white text-accent-light-text shadow-sm ring-1 ring-slate-900/5'
+                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
+                                    >
+                                        {range}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        {!focusCategory && (
-                            <div className="flex flex-wrap items-center gap-2 max-w-full">
-                                {activeVisibleCategories.map((cat, idx) => (
-                                    <React.Fragment key={cat}>
-                                        {/* Insertion line — shown BEFORE the drop target */}
-                                        {dragIndex !== null && dragOverIndex === idx && dragIndex !== idx && (
-                                            <div className="w-0.5 h-6 bg-accent rounded-full shrink-0 animate-in fade-in duration-100" />
-                                        )}
-                                        <div
-                                            draggable
-                                            onDragStart={(e) => handlePillDragStart(e, idx)}
-                                            onDragOver={(e) => handlePillDragOver(e, idx)}
-                                            onDrop={(e) => handlePillDrop(e, idx)}
-                                            onDragEnd={handlePillDragEnd}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-sm text-xs font-bold text-slate-700 cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${dragIndex === idx
-                                                ? 'opacity-40 scale-95 bg-slate-100 border-slate-300'
-                                                : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:shadow-md'
-                                                }`}
-                                        >
-                                            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getColorForCategory(cat, idx) }} />
-                                            {cat}
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); toggleCategoryVisibility(cat); }}
-                                                className="ml-0.5 text-slate-400 hover:text-slate-700 transition-colors"
-                                                onMouseDown={e => e.stopPropagation()}
-                                            >
-                                                <X size={12} strokeWidth={2.5} />
-                                            </button>
-                                        </div>
-                                    </React.Fragment>
-                                ))}
-
-                                {remainingCount > 0 && (
-                                    <div className="relative flex items-center group">
-                                        <div className="absolute left-3 w-2.5 h-2.5 rounded-full bg-slate-300 z-10 pointer-events-none" />
-                                        <select
-                                            className="appearance-none bg-white border border-dashed border-slate-300 text-slate-500 hover:text-accent hover:border-accent-border hover:bg-white font-bold text-xs rounded-full pl-7 pr-7 py-1.5 outline-none cursor-pointer transition-all shadow-sm"
-                                            value=""
-                                            onChange={e => { if (e.target.value) toggleCategoryVisibility(e.target.value); }}
-                                        >
-                                            <option value="" disabled>Remaining ({remainingCount})</option>
-                                            {categoryTotals.filter(c => !activeVisibleCategories.includes(c[0])).map(c => (
-                                                <option key={c[0]} value={c[0]}>+ Add {c[0]}</option>
-                                            ))}
-                                        </select>
-                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 group-hover:text-accent">
-                                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Chart area — position:relative so locked card is anchored */}
-                    <div className="flex-1 w-full min-h-[350px] relative" ref={chartContainerRef}>
-                        {chartData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                                {focusCategory ? (
-                                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.chart.gridline} />
-                                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} dy={10} minTickGap={20} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} tickFormatter={val => `$${val}`} width={80} domain={[0, dataMax => Math.round(dataMax * 1.15)]} />
-                                        <RechartsTooltip shared={false} cursor={{ fill: theme.chart.cursorFill, radius: 4 }} content={<HoverTooltip />} />
-                                        <Bar
-                                            dataKey={selectedCategory}
-                                            fill={getColorForCategory(selectedCategory)}
-                                            radius={[4, 4, 0, 0]}
-                                            className="cursor-pointer"
-                                            onClick={(data, idx, e) => handleBarClick(selectedCategory, data, e)}
-                                        >
-                                            <LabelList dataKey={selectedCategory} position="top"
-                                                formatter={val => val > 0 ? `$${Math.round(val)}` : ''}
-                                                style={{ fontSize: '10px', fill: '#64748b', fontWeight: 600 }} />
-                                        </Bar>
-                                    </BarChart>
-                                ) : (
-                                    <BarChart data={presentationChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.chart.gridline} />
-                                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} dy={10} minTickGap={20} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} tickFormatter={val => `$${val}`} width={80} domain={[0, dataMax => Math.round(dataMax * 1.15)]} />
-                                        <RechartsTooltip shared={false} cursor={{ fill: theme.chart.cursorFill, radius: 6 }} content={<HoverTooltip />} />
-                                        {activeVisibleCategories.map((cat, index) => {
-                                            // last user-category bar = topmost when no remaining
-                                            const isTop = remainingCount === 0 && index === activeVisibleCategories.length - 1;
-                                            return (
-                                                <Bar key={cat} dataKey={cat} stackId="a"
-                                                    fill={getColorForCategory(cat, index)}
-                                                    className="cursor-pointer"
-                                                    radius={isTop ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                                                    onClick={(data, idx, e) => handleBarClick(cat, data, e)}
-                                                />
-                                            );
-                                        })}
-                                        {/* Always rendered LAST → permanently at top of stack. Never conditionally unmounted. */}
-                                        <Bar key="remaining" dataKey="remaining"
-                                            name={`Remaining ${remainingCount} categor${remainingCount === 1 ? 'y' : 'ies'}`}
-                                            stackId="a" fill={theme.chart.remaining}
-                                            className={remainingCount > 0 ? 'cursor-pointer' : ''}
-                                            radius={remainingCount > 0 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                                            onClick={remainingCount > 0 ? (data, idx, e) => handleBarClick('Remaining', data, e) : undefined}
-                                        />
-                                        <Line dataKey="total" stroke="transparent" dot={false} activeDot={false} isAnimationActive={false}>
-                                            <LabelList dataKey="total" position="top" offset={8}
-                                                formatter={val => val > 0 ? `$${Math.round(val)}` : ''}
-                                                style={{ fontSize: '10px', fill: '#64748b', fontWeight: 600 }} />
-                                        </Line>
-                                    </BarChart>
-                                )}
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
-                                <LayoutDashboard size={40} strokeWidth={1.5} className="mb-3 opacity-20" />
-                                <p className="text-sm font-medium">No spending data for this period</p>
-                            </div>
-                        )}
-
-                        {/* ── Locked expanded card (anchored in chart) ───────── */}
-                        {lockedTooltip && (
-                            <div
-                                className="absolute z-50 pointer-events-auto"
-                                style={{
-                                    left: Math.min(lockedTooltip.x, (chartContainerRef.current?.offsetWidth || 400) - 210),
-                                    top: Math.max(lockedTooltip.y - 12, 0),
-                                    transform: 'translate(-50%, -100%)',
-                                }}
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <div className="bg-surface-card rounded-2xl border border-divider shadow-xl shadow-slate-200/60 w-52 overflow-hidden animate-in zoom-in-95 fade-in duration-150">
-                                    {/* Header */}
-                                    <div className="px-4 pt-3 pb-2 border-b border-slate-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            {lockedTooltip.category !== 'Remaining' && (
-                                                <div className="w-2.5 h-2.5 rounded-full shrink-0"
-                                                    style={{ backgroundColor: getColorForCategory(lockedTooltip.category) }} />
-                                            )}
-                                            <span className="text-xs font-bold text-slate-800 truncate max-w-[120px]">{lockedTooltip.category}</span>
-                                        </div>
-                                        <button onClick={() => setLockedTooltip(null)} className="text-slate-300 hover:text-slate-500 transition-colors">
-                                            <X size={13} />
-                                        </button>
-                                    </div>
-                                    {/* Stats */}
-                                    <div className="px-4 py-2.5 space-y-1">
-                                        {(() => {
-                                            const cat = lockedTooltip.category;
-                                            const payload = lockedTooltip.payload || {};
-                                            // Recharts Bar onClick gives us the full payload object
-                                            const amount = payload[cat] ?? 0;
-                                            const total = payload.total || 0;
-                                            const pct = total > 0 ? ((amount / total) * 100).toFixed(1) : '0.0';
-                                            const label = payload.label || '';
-                                            return (
-                                                <>
-                                                    <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs text-slate-500">Spend</span>
-                                                        <span className="text-sm font-bold text-slate-800">${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs text-slate-500">% of total</span>
-                                                        <span className="text-xs font-bold text-accent">{pct}%</span>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                    {/* Action buttons */}
-                                    <div className="px-2 pb-2 space-y-0.5">
-                                        {lockedTooltip.category !== 'Remaining' && !focusCategory && (
-                                            <button
-                                                className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-accent-light hover:text-accent-light-text rounded-xl transition-colors flex items-center gap-2"
-                                                onClick={() => {
-                                                    setFocusCategory(true);
-                                                    setSelectedCategory(lockedTooltip.category);
-                                                    setLockedTooltip(null);
-                                                }}
-                                            >
-                                                <Tag size={13} className="text-accent" />
-                                                Focus on Category
-                                            </button>
-                                        )}
-                                        {focusCategory && (
-                                            <button
-                                                className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-2"
-                                                onClick={() => { setFocusCategory(false); setLockedTooltip(null); }}
-                                            >
-                                                <LayoutDashboard size={13} className="text-slate-400" />
-                                                View All Categories
-                                            </button>
-                                        )}
-                                        <button
-                                            className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-2"
-                                            onClick={() => {
-                                                navigateToAnalysis(lockedTooltip.payload, lockedTooltip.category !== 'Remaining' ? lockedTooltip.category : null);
-                                                setLockedTooltip(null);
-                                            }}
-                                        >
-                                            <ArrowUpRight size={13} className="text-slate-400" />
-                                            View Breakdown
-                                        </button>
-                                    </div>
+                        {timeRange === 'Custom' && (
+                            <div className="flex flex-col gap-1.5 flex-1 min-w-[280px]">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom Dates</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)}
+                                        className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-text" />
+                                    <span className="text-slate-400 text-sm font-medium">to</span>
+                                    <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)}
+                                        className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-text" />
                                 </div>
                             </div>
                         )}
+
+                        <div className="flex flex-col gap-1.5 min-w-[140px]">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Group By</label>
+                            <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
+                                className="bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block w-full p-2 outline-none cursor-pointer">
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="w-full md:w-auto flex md:ml-auto items-center justify-between md:justify-end gap-6 border-t md:border-t-0 md:border-l border-slate-100 pt-5 md:pt-0 md:pl-6 shrink-0 h-full">
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                            <div className="relative flex items-center">
+                                <input type="checkbox" className="sr-only" checked={focusCategory} onChange={() => setFocusCategory(!focusCategory)} />
+                                <div className={`block w-11 h-6 rounded-full transition-all duration-300 ease-in-out ${focusCategory ? 'bg-accent shadow-inner' : 'bg-slate-200 shadow-inner'}`} />
+                                <div className={`absolute left-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 ease-in-out shadow-sm ${focusCategory ? 'transform translate-x-5' : ''}`} />
+                            </div>
+                            <span className="text-sm font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Focus on Category</span>
+                        </label>
+
+                        {focusCategory && (
+                            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
+                                className="bg-accent-light/50 border border-accent-ring text-accent-light-text font-bold text-sm rounded-xl focus:ring-2 focus:ring-accent-ring focus:border-accent-border block min-w-[160px] p-2 outline-none cursor-pointer animate-in fade-in slide-in-from-right-4 duration-300">
+                                {categoryNames.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                <option value="Uncategorized">Uncategorized</option>
+                            </select>
+                        )}
                     </div>
                 </div>
-            </div>
 
-            {/* ── Pro Tip ──────────────────────────────────────────────────── */}
-            <div className="bg-accent-light/30 border border-accent-light/50 p-4 rounded-xl flex items-center gap-4 shadow-sm">
-                <Info className="text-accent shrink-0" size={18} />
-                <p className="text-accent-light-text/60 text-xs font-medium">
-                    Pro Tip: Update <button onClick={() => navigate('/dashboard/ai-processing')} className="font-bold underline hover:text-accent-light-text">Categories &amp; Rules</button> to customize how your transactions are sorted.
-                </p>
-            </div>
+                {/* ── Summary Grid ────────────────────────────────────────────── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {dynamicInsights ? (
+                        <>
+                            <InsightCard title="Spending Trend" icon={<TrendingUp size={12} />}
+                                primaryMsg={<>{dynamicInsights.trend.value > 0 ? <ArrowUpRight size={18} /> : dynamicInsights.trend.value < 0 ? <ArrowDownRight size={18} /> : null}{Math.abs(dynamicInsights.trend.value).toFixed(1)}%</>}
+                                subMsg={dynamicInsights.trend.label}
+                                colorClass={dynamicInsights.trend.value > 0 ? 'text-rose-600' : dynamicInsights.trend.value < 0 ? 'text-emerald-600' : 'text-slate-600'} />
+                            <InsightCard title="Largest Increase" icon={<ArrowUpRight size={12} className="text-rose-500" />}
+                                primaryMsg={dynamicInsights.increase ? `${dynamicInsights.increase.category} +${Math.round(dynamicInsights.increase.value)}%` : 'No major increases'}
+                                subMsg={dynamicInsights.increase ? dynamicInsights.increase.label : ' '}
+                                colorClass={dynamicInsights.increase ? 'text-slate-800' : 'text-slate-400'} />
+                            <InsightCard title="Largest Decrease" icon={<ArrowDownRight size={12} className="text-emerald-500" />}
+                                primaryMsg={dynamicInsights.decrease ? `${dynamicInsights.decrease.category} ${Math.round(dynamicInsights.decrease.value)}%` : 'No major decreases'}
+                                subMsg={dynamicInsights.decrease ? dynamicInsights.decrease.label : ' '}
+                                colorClass={dynamicInsights.decrease ? 'text-slate-800' : 'text-slate-400'} />
+                            <InsightCard title="Anomaly Detection" icon={<Activity size={12} className={dynamicInsights.anomaly.color} />}
+                                primaryMsg={dynamicInsights.anomaly.label} subMsg={dynamicInsights.anomaly.value}
+                                colorClass={dynamicInsights.anomaly.color} bgClass={dynamicInsights.anomaly.bg} />
+                        </>
+                    ) : (
+                        <div className="col-span-1 md:col-span-2 lg:col-span-4 p-6 bg-slate-50 text-slate-400 font-medium text-sm rounded-xl border border-slate-200 text-center flex items-center justify-center gap-2">
+                            <Activity size={16} /> Need at least 2 complete intervals to generate comparative insights.
+                        </div>
+                    )}
+                </div>
+
+                {/* ── Spending Trends Chart ────────────────────────────────────── */}
+                <div className="grid grid-cols-1 gap-8">
+                    <div className="bg-surface-card p-6 rounded-2xl border border-divider shadow-sm flex flex-col min-h-[450px]">
+
+                        {/* Chart header + draggable pill row */}
+                        <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900">Spending Trends</h3>
+                                <p className="text-sm text-slate-500">
+                                    {focusCategory
+                                        ? 'Click a bar to see details and actions.'
+                                        : 'Drag pills to reorder stack. Click a segment to see details.'}
+                                </p>
+                            </div>
+
+                            {!focusCategory && (
+                                <div className="flex flex-wrap items-center gap-2 max-w-full">
+                                    {activeVisibleCategories.map((cat, idx) => (
+                                        <React.Fragment key={cat}>
+                                            {/* Insertion line — shown BEFORE the drop target */}
+                                            {dragIndex !== null && dragOverIndex === idx && dragIndex !== idx && (
+                                                <div className="w-0.5 h-6 bg-accent rounded-full shrink-0 animate-in fade-in duration-100" />
+                                            )}
+                                            <div
+                                                draggable
+                                                onDragStart={(e) => handlePillDragStart(e, idx)}
+                                                onDragOver={(e) => handlePillDragOver(e, idx)}
+                                                onDrop={(e) => handlePillDrop(e, idx)}
+                                                onDragEnd={handlePillDragEnd}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-sm text-xs font-bold text-slate-700 cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${dragIndex === idx
+                                                    ? 'opacity-40 scale-95 bg-slate-100 border-slate-300'
+                                                    : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:shadow-md'
+                                                    }`}
+                                            >
+                                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getColorForCategory(cat, idx) }} />
+                                                {cat}
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); toggleCategoryVisibility(cat); }}
+                                                    className="ml-0.5 text-slate-400 hover:text-slate-700 transition-colors"
+                                                    onMouseDown={e => e.stopPropagation()}
+                                                >
+                                                    <X size={12} strokeWidth={2.5} />
+                                                </button>
+                                            </div>
+                                        </React.Fragment>
+                                    ))}
+
+                                    {remainingCount > 0 && (
+                                        <div className="relative flex items-center group">
+                                            <div className="absolute left-3 w-2.5 h-2.5 rounded-full bg-slate-300 z-10 pointer-events-none" />
+                                            <select
+                                                className="appearance-none bg-white border border-dashed border-slate-300 text-slate-500 hover:text-accent hover:border-accent-border hover:bg-white font-bold text-xs rounded-full pl-7 pr-7 py-1.5 outline-none cursor-pointer transition-all shadow-sm"
+                                                value=""
+                                                onChange={e => { if (e.target.value) toggleCategoryVisibility(e.target.value); }}
+                                            >
+                                                <option value="" disabled>Remaining ({remainingCount})</option>
+                                                {categoryTotals.filter(c => !activeVisibleCategories.includes(c[0])).map(c => (
+                                                    <option key={c[0]} value={c[0]}>+ Add {c[0]}</option>
+                                                ))}
+                                            </select>
+                                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 group-hover:text-accent">
+                                                <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Chart area — position:relative so locked card is anchored */}
+                        <div className="flex-1 w-full min-h-[350px] relative" ref={chartContainerRef}>
+                            {chartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    {focusCategory ? (
+                                        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.chart.gridline} />
+                                            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} dy={10} minTickGap={20} />
+                                            <YAxis axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} tickFormatter={val => `$${val}`} width={80} domain={[0, dataMax => Math.round(dataMax * 1.15)]} />
+                                            <RechartsTooltip shared={false} cursor={{ fill: theme.chart.cursorFill, radius: 4 }} content={<HoverTooltip />} />
+                                            <Bar
+                                                dataKey={selectedCategory}
+                                                fill={getColorForCategory(selectedCategory)}
+                                                radius={[4, 4, 0, 0]}
+                                                className="cursor-pointer"
+                                                onClick={(data, idx, e) => handleBarClick(selectedCategory, data, e)}
+                                            >
+                                                <LabelList dataKey={selectedCategory} position="top"
+                                                    formatter={val => val > 0 ? `$${Math.round(val)}` : ''}
+                                                    style={{ fontSize: '10px', fill: '#64748b', fontWeight: 600 }} />
+                                            </Bar>
+                                        </BarChart>
+                                    ) : (
+                                        <BarChart data={presentationChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.chart.gridline} />
+                                            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} dy={10} minTickGap={20} />
+                                            <YAxis axisLine={false} tickLine={false} tick={{ fill: theme.chart.axisLabel, fontSize: 11, fontWeight: 500 }} tickFormatter={val => `$${val}`} width={80} domain={[0, dataMax => Math.round(dataMax * 1.15)]} />
+                                            <RechartsTooltip shared={false} cursor={{ fill: theme.chart.cursorFill, radius: 6 }} content={<HoverTooltip />} />
+                                            {activeVisibleCategories.map((cat, index) => {
+                                                // last user-category bar = topmost when no remaining
+                                                const isTop = remainingCount === 0 && index === activeVisibleCategories.length - 1;
+                                                return (
+                                                    <Bar key={cat} dataKey={cat} stackId="a"
+                                                        fill={getColorForCategory(cat, index)}
+                                                        className="cursor-pointer"
+                                                        radius={isTop ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                                                        onClick={(data, idx, e) => handleBarClick(cat, data, e)}
+                                                    />
+                                                );
+                                            })}
+                                            {/* Always rendered LAST → permanently at top of stack. Never conditionally unmounted. */}
+                                            <Bar key="remaining" dataKey="remaining"
+                                                name={`Remaining ${remainingCount} categor${remainingCount === 1 ? 'y' : 'ies'}`}
+                                                stackId="a" fill={theme.chart.remaining}
+                                                className={remainingCount > 0 ? 'cursor-pointer' : ''}
+                                                radius={remainingCount > 0 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                                                onClick={remainingCount > 0 ? (data, idx, e) => handleBarClick('Remaining', data, e) : undefined}
+                                            />
+                                            <Line dataKey="total" stroke="transparent" dot={false} activeDot={false} isAnimationActive={false}>
+                                                <LabelList dataKey="total" position="top" offset={8}
+                                                    formatter={val => val > 0 ? `$${Math.round(val)}` : ''}
+                                                    style={{ fontSize: '10px', fill: '#64748b', fontWeight: 600 }} />
+                                            </Line>
+                                        </BarChart>
+                                    )}
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                                    <LayoutDashboard size={40} strokeWidth={1.5} className="mb-3 opacity-20" />
+                                    <p className="text-sm font-medium">No spending data for this period</p>
+                                </div>
+                            )}
+
+                            {/* ── Locked expanded card (anchored in chart) ───────── */}
+                            {lockedTooltip && (
+                                <div
+                                    className="absolute z-50 pointer-events-auto"
+                                    style={{
+                                        left: Math.min(lockedTooltip.x, (chartContainerRef.current?.offsetWidth || 400) - 210),
+                                        top: Math.max(lockedTooltip.y - 12, 0),
+                                        transform: 'translate(-50%, -100%)',
+                                    }}
+                                    onClick={e => e.stopPropagation()}
+                                >
+                                    <div className="bg-surface-card rounded-2xl border border-divider shadow-xl shadow-slate-200/60 w-52 overflow-hidden animate-in zoom-in-95 fade-in duration-150">
+                                        {/* Header */}
+                                        <div className="px-4 pt-3 pb-2 border-b border-slate-100 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                {lockedTooltip.category !== 'Remaining' && (
+                                                    <div className="w-2.5 h-2.5 rounded-full shrink-0"
+                                                        style={{ backgroundColor: getColorForCategory(lockedTooltip.category) }} />
+                                                )}
+                                                <span className="text-xs font-bold text-slate-800 truncate max-w-[120px]">{lockedTooltip.category}</span>
+                                            </div>
+                                            <button onClick={() => setLockedTooltip(null)} className="text-slate-300 hover:text-slate-500 transition-colors">
+                                                <X size={13} />
+                                            </button>
+                                        </div>
+                                        {/* Stats */}
+                                        <div className="px-4 py-2.5 space-y-1">
+                                            {(() => {
+                                                const cat = lockedTooltip.category;
+                                                const payload = lockedTooltip.payload || {};
+                                                // Recharts Bar onClick gives us the full payload object
+                                                const amount = payload[cat] ?? 0;
+                                                const total = payload.total || 0;
+                                                const pct = total > 0 ? ((amount / total) * 100).toFixed(1) : '0.0';
+                                                const label = payload.label || '';
+                                                return (
+                                                    <>
+                                                        <p className="text-[10px] text-slate-400 font-medium">{label}</p>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs text-slate-500">Spend</span>
+                                                            <span className="text-sm font-bold text-slate-800">${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs text-slate-500">% of total</span>
+                                                            <span className="text-xs font-bold text-accent">{pct}%</span>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                        {/* Action buttons */}
+                                        <div className="px-2 pb-2 space-y-0.5">
+                                            {lockedTooltip.category !== 'Remaining' && !focusCategory && (
+                                                <button
+                                                    className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-accent-light hover:text-accent-light-text rounded-xl transition-colors flex items-center gap-2"
+                                                    onClick={() => {
+                                                        setFocusCategory(true);
+                                                        setSelectedCategory(lockedTooltip.category);
+                                                        setLockedTooltip(null);
+                                                    }}
+                                                >
+                                                    <Tag size={13} className="text-accent" />
+                                                    Focus on Category
+                                                </button>
+                                            )}
+                                            {focusCategory && (
+                                                <button
+                                                    className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-2"
+                                                    onClick={() => { setFocusCategory(false); setLockedTooltip(null); }}
+                                                >
+                                                    <LayoutDashboard size={13} className="text-slate-400" />
+                                                    View All Categories
+                                                </button>
+                                            )}
+                                            <button
+                                                className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-2"
+                                                onClick={() => {
+                                                    navigateToAnalysis(lockedTooltip.payload, lockedTooltip.category !== 'Remaining' ? lockedTooltip.category : null);
+                                                    setLockedTooltip(null);
+                                                }}
+                                            >
+                                                <ArrowUpRight size={13} className="text-slate-400" />
+                                                View Breakdown
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Pro Tip ──────────────────────────────────────────────────── */}
+                <div className="bg-accent-light/30 border border-accent-light/50 p-4 rounded-xl flex items-center gap-4 shadow-sm">
+                    <Info className="text-accent shrink-0" size={18} />
+                    <p className="text-accent-light-text/60 text-xs font-medium">
+                        Pro Tip: Update <button onClick={() => navigate('/dashboard/ai-processing')} className="font-bold underline hover:text-accent-light-text">Categories &amp; Rules</button> to customize how your transactions are sorted.
+                    </p>
+                </div>
+            </>)}
         </div>
     );
 }
@@ -754,3 +814,4 @@ function StatCard({ title, value, icon, trend }) {
         </div>
     );
 }
+

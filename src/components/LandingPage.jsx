@@ -56,7 +56,7 @@ export default function LandingPage() {
                             Log In
                         </button>
                         <button
-                            onClick={() => navigate('/auth')}
+                            onClick={() => navigate('/auth?signup=true')}
                             className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all duration-300 shadow-md hover:shadow-xl hover:-translate-y-0.5"
                         >
                             Get Started
@@ -80,7 +80,7 @@ export default function LandingPage() {
                         <a href="#security" className="text-slate-600 hover:text-slate-900 font-medium p-2">Security</a>
                         <hr className="border-slate-100" />
                         <button onClick={() => navigate('/auth')} className="w-full text-center py-2 font-medium text-slate-600">Log In</button>
-                        <button onClick={() => navigate('/auth')} className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium">Get Started</button>
+                        <button onClick={() => navigate('/auth?signup=true')} className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium">Get Started</button>
                     </div>
                 )}
             </nav>
@@ -102,7 +102,7 @@ export default function LandingPage() {
                     {/* CTA Buttons */}
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-fade-in-up delay-200">
                         <button
-                            onClick={() => navigate('/auth')}
+                            onClick={() => navigate('/auth?signup=true')}
                             className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-lg font-medium px-8 py-4 rounded-full transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1"
                         >
                             Start Tracking

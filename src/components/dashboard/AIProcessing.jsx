@@ -170,6 +170,7 @@ export default function AIProcessing() {
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
     const [isReprocessing, setIsReprocessing] = useState(false);
     const [loadingFiles, setLoadingFiles] = useState(false);
+    const [hasUploadedFiles, setHasUploadedFiles] = useState(false);
 
     // ── Fetch data on mount ──────────────────────────────────────────────────
     useEffect(() => {
@@ -192,6 +193,17 @@ export default function AIProcessing() {
             // Freeze baseline so isDirty computes against initial DB state
             baselineCats.current = snapshotCats(cats);
             baselineRules.current = snapshotRules(rls);
+
+            // Check whether the user has any uploaded files (for showing Reprocess button)
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { count } = await supabase
+                    .schema('bronze')
+                    .from('transactions')
+                    .select('file_id', { count: 'exact', head: true })
+                    .eq('user_id', user.id);
+                setHasUploadedFiles((count ?? 0) > 0);
+            }
         } catch (err) {
             setError(err.message);
         } finally {
@@ -533,18 +545,20 @@ export default function AIProcessing() {
                 </div>
 
                 <div className="flex flex-col items-end gap-2 shrink-0">
-                    <button
-                        onClick={openReprocessModal}
-                        disabled={!isDirty}
-                        className={`px-6 py-3 rounded-xl text-base font-bold flex items-center gap-3 transition-all shadow-md ${isDirty
-                            ? 'bg-accent text-white hover:bg-accent-hover shadow-accent-shadow cursor-pointer scale-[1.02]'
-                            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                            }`}
-                    >
-                        <RefreshCw size={20} className={isDirty ? '' : 'opacity-40'} />
-                        Reprocess Transactions
-                    </button>
-                    {!isDirty && (
+                    {hasUploadedFiles && (
+                        <button
+                            onClick={openReprocessModal}
+                            disabled={!isDirty}
+                            className={`px-6 py-3 rounded-xl text-base font-bold flex items-center gap-3 transition-all shadow-md ${isDirty
+                                ? 'bg-accent text-white hover:bg-accent-hover shadow-accent-shadow cursor-pointer scale-[1.02]'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                }`}
+                        >
+                            <RefreshCw size={20} className={isDirty ? '' : 'opacity-40'} />
+                            Reprocess Transactions
+                        </button>
+                    )}
+                    {hasUploadedFiles && !isDirty && (
                         <p className="text-xs text-slate-400 font-medium">Update categories or rules to reprocess data</p>
                     )}
                 </div>
