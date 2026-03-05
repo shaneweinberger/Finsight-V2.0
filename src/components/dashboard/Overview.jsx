@@ -535,35 +535,9 @@ export default function Overview() {
                     </div>
                 </div>
 
-                {/* ── Summary Grid ────────────────────────────────────────────── */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {dynamicInsights ? (
-                        <>
-                            <InsightCard title="Spending Trend" icon={<TrendingUp size={12} />}
-                                primaryMsg={<>{dynamicInsights.trend.value > 0 ? <ArrowUpRight size={18} /> : dynamicInsights.trend.value < 0 ? <ArrowDownRight size={18} /> : null}{Math.abs(dynamicInsights.trend.value).toFixed(1)}%</>}
-                                subMsg={dynamicInsights.trend.label}
-                                colorClass={dynamicInsights.trend.value > 0 ? 'text-rose-600' : dynamicInsights.trend.value < 0 ? 'text-emerald-600' : 'text-slate-600'} />
-                            <InsightCard title="Largest Increase" icon={<ArrowUpRight size={12} className="text-rose-500" />}
-                                primaryMsg={dynamicInsights.increase ? `${dynamicInsights.increase.category} +${Math.round(dynamicInsights.increase.value)}%` : 'No major increases'}
-                                subMsg={dynamicInsights.increase ? dynamicInsights.increase.label : ' '}
-                                colorClass={dynamicInsights.increase ? 'text-slate-800' : 'text-slate-400'} />
-                            <InsightCard title="Largest Decrease" icon={<ArrowDownRight size={12} className="text-emerald-500" />}
-                                primaryMsg={dynamicInsights.decrease ? `${dynamicInsights.decrease.category} ${Math.round(dynamicInsights.decrease.value)}%` : 'No major decreases'}
-                                subMsg={dynamicInsights.decrease ? dynamicInsights.decrease.label : ' '}
-                                colorClass={dynamicInsights.decrease ? 'text-slate-800' : 'text-slate-400'} />
-                            <InsightCard title="Anomaly Detection" icon={<Activity size={12} className={dynamicInsights.anomaly.color} />}
-                                primaryMsg={dynamicInsights.anomaly.label} subMsg={dynamicInsights.anomaly.value}
-                                colorClass={dynamicInsights.anomaly.color} bgClass={dynamicInsights.anomaly.bg} />
-                        </>
-                    ) : (
-                        <div className="col-span-1 md:col-span-2 lg:col-span-4 p-6 bg-slate-50 text-slate-400 font-medium text-sm rounded-xl border border-slate-200 text-center flex items-center justify-center gap-2">
-                            <Activity size={16} /> Need at least 2 complete intervals to generate comparative insights.
-                        </div>
-                    )}
-                </div>
-
-                {/* ── Spending Trends Chart ────────────────────────────────────── */}
-                <div className="grid grid-cols-1 gap-8">
+                {/* ── Spending Trends + Insight Cards Side-by-Side ────────────── */}
+                <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 items-start">
+                    {/* Chart card */}
                     <div className="bg-surface-card p-6 rounded-2xl border border-divider shadow-sm flex flex-col min-h-[450px]">
 
                         {/* Chart header + draggable pill row */}
@@ -632,7 +606,7 @@ export default function Overview() {
                         </div>
 
                         {/* Chart area — position:relative so locked card is anchored */}
-                        <div className="flex-1 w-full min-h-[350px] relative" ref={chartContainerRef}>
+                        <div className="w-full h-[380px] relative" ref={chartContainerRef}>
                             {chartData.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     {focusCategory ? (
@@ -783,6 +757,33 @@ export default function Overview() {
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    {/* Insight cards — vertical stack beside chart */}
+                    <div className="flex flex-col gap-3">
+                        {dynamicInsights ? (
+                            <>
+                                <InsightCard title="Spending Trend" icon={<TrendingUp size={12} />}
+                                    primaryMsg={<>{dynamicInsights.trend.value > 0 ? <ArrowUpRight size={18} /> : dynamicInsights.trend.value < 0 ? <ArrowDownRight size={18} /> : null}{Math.abs(dynamicInsights.trend.value).toFixed(1)}%</>}
+                                    subMsg={dynamicInsights.trend.label}
+                                    colorClass={dynamicInsights.trend.value > 0 ? 'text-rose-600' : dynamicInsights.trend.value < 0 ? 'text-emerald-600' : 'text-slate-600'} />
+                                <InsightCard title="Largest Increase" icon={<ArrowUpRight size={12} className="text-rose-500" />}
+                                    primaryMsg={dynamicInsights.increase ? `${dynamicInsights.increase.category} +${Math.round(dynamicInsights.increase.value)}%` : 'No major increases'}
+                                    subMsg={dynamicInsights.increase ? dynamicInsights.increase.label : ' '}
+                                    colorClass={dynamicInsights.increase ? 'text-slate-800' : 'text-slate-400'} />
+                                <InsightCard title="Largest Decrease" icon={<ArrowDownRight size={12} className="text-emerald-500" />}
+                                    primaryMsg={dynamicInsights.decrease ? `${dynamicInsights.decrease.category} ${Math.round(dynamicInsights.decrease.value)}%` : 'No major decreases'}
+                                    subMsg={dynamicInsights.decrease ? dynamicInsights.decrease.label : ' '}
+                                    colorClass={dynamicInsights.decrease ? 'text-slate-800' : 'text-slate-400'} />
+                                <InsightCard title="Anomaly Detection" icon={<Activity size={12} className={dynamicInsights.anomaly.color} />}
+                                    primaryMsg={dynamicInsights.anomaly.label} subMsg={dynamicInsights.anomaly.value}
+                                    colorClass={dynamicInsights.anomaly.color} bgClass={dynamicInsights.anomaly.bg} />
+                            </>
+                        ) : (
+                            <div className="p-4 bg-slate-50 text-slate-400 font-medium text-xs rounded-xl border border-slate-200 text-center">
+                                Need at least 2 intervals for insights.
+                            </div>
+                        )}
                     </div>
                 </div>
 

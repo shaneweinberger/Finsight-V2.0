@@ -221,11 +221,37 @@ export default function Analysis() {
 
             const { data, error } = await supabase
                 .from('user_categories')
-                .select('name, color')
-                .eq('user_id', user.id);
+                .select('name, color, id')
+                .eq('user_id', user.id)
+                .order('name');
 
             if (error) throw error;
-            setCategories(data || []);
+            const fetched = data || [];
+
+            // ── One-time color backfill (same as Categories.jsx) ──────────────
+            // Write a palette color to any category that has null color in the DB.
+            const uncolored = fetched.filter(c => !c.color);
+            if (uncolored.length > 0) {
+                await Promise.all(
+                    uncolored.map((cat) => {
+                        const globalIdx = fetched.findIndex(c => c.id === cat.id);
+                        return supabase
+                            .from('user_categories')
+                            .update({ color: CATEGORY_COLORS[globalIdx % CATEGORY_COLORS.length] })
+                            .eq('id', cat.id);
+                    })
+                );
+                // Re-fetch with saved colors
+                const { data: refreshed, error: rErr } = await supabase
+                    .from('user_categories')
+                    .select('name, color, id')
+                    .eq('user_id', user.id)
+                    .order('name');
+                if (rErr) throw rErr;
+                setCategories(refreshed || []);
+            } else {
+                setCategories(fetched);
+            }
         } catch (err) {
             console.error('Error fetching categories:', err);
         }
@@ -234,9 +260,9 @@ export default function Analysis() {
     // Derived category names for backward compat
     const categoryNames = categories.map(c => c.name);
 
-    // Color helper: persisted color > fallback palette
+    // Color helper: prefers DB color, case-insensitive name match, then palette fallback
     const getColor = (catName, fallbackIndex = 0) => {
-        const cat = categories.find(c => c.name === catName);
+        const cat = categories.find(c => c.name.toLowerCase() === catName?.toLowerCase());
         if (cat?.color) return cat.color;
         return CATEGORY_COLORS[fallbackIndex % CATEGORY_COLORS.length];
     };
@@ -358,11 +384,22 @@ export default function Analysis() {
 
     // Final filtered transactions for the table: apply selectedCategory on top of base filters.
     const filteredTransactions = React.useMemo(() => {
-        if (!selectedCategory) return baseFilteredTransactions;
-        return baseFilteredTransactions.filter(tx => {
-            const cat = (tx.category || 'Uncategorized').toLowerCase();
-            return cat === selectedCategory.toLowerCase();
-        });
+        let result = baseFilteredTransactions;
+
+        if (selectedCategory) {
+            result = result.filter(tx => {
+                const cat = (tx.category || 'Uncategorized').toLowerCase();
+                return cat === selectedCategory.toLowerCase();
+            });
+        }
+
+        // When a category is selected, pre-sort by absolute amount descending so that
+        // the highest-spending transactions are always on page 1 before paginating.
+        if (selectedCategory) {
+            result = [...result].sort((a, b) => Math.abs(parseFloat(b.amount) || 0) - Math.abs(parseFloat(a.amount) || 0));
+        }
+
+        return result;
     }, [baseFilteredTransactions, selectedCategory]);
 
     const categoryStats = React.useMemo(() => {
@@ -641,22 +678,21 @@ export default function Analysis() {
 
             {/* Top Charts Section */}
             {!loading && categoryStats.data.length > 0 && (
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
-                    {/* Category Spend Card */}
-                    <div className="xl:col-span-12 bg-surface-card rounded-2xl border border-divider shadow-sm relative z-20 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                            <h3 className="text-base font-bold text-slate-900">Category Breakdown</h3>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
-                            <div className="md:col-span-8 border-r border-slate-100 bg-white pl-6 pb-6 pr-4">
+                <div className="mb-6">
+                    {/* Category Breakdown */}
+                    <div className="relative z-20 pl-6">
+                        <h3 className="text-base font-bold text-slate-900 mb-0.5">Category Breakdown</h3>
+                        <p className="text-xs text-slate-500 mb-4 font-medium italic">Click on a category row or chart slice to filter your transactions</p>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                            <div className="md:col-span-8">
                                 <div className="overflow-x-visible">
                                     <table className="w-full text-left border-collapse">
-                                        <thead className="sticky top-0 bg-white shadow-sm z-10">
-                                            <tr className="border-b border-slate-100 bg-white">
-                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
-                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Spend</th>
-                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right text-xs">Txns</th>
-                                                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">% of Total</th>
+                                        <thead>
+                                            <tr className="border-b border-slate-200">
+                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
+                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Spend</th>
+                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Txns</th>
+                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">% of Total</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -668,18 +704,18 @@ export default function Analysis() {
                                                     <tr
                                                         key={row.category}
                                                         onClick={() => handleCategoryClick(row.category)}
-                                                        className={`transition-all bg-white cursor-pointer ${isSelected ? 'bg-accent-light/50' : isDimmed ? 'opacity-30 grayscale-[0.5]' : 'hover:bg-slate-50/50'
+                                                        className={`transition-all cursor-pointer ${isSelected ? 'bg-accent-light/30' : isDimmed ? 'opacity-30 grayscale-[0.5]' : 'hover:bg-slate-50/50'
                                                             }`}
                                                     >
-                                                        <td className="px-5 py-3 text-sm font-semibold text-slate-700">
+                                                        <td className="px-1 py-3 text-sm font-semibold text-slate-700">
                                                             <div className="flex items-center gap-2">
                                                                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: isDimmed ? '#cbd5e1' : getColor(row.category, idx) }} />
                                                                 <span className="truncate">{row.category}</span>
                                                             </div>
                                                         </td>
-                                                        <td className="px-5 py-3 text-sm font-bold text-slate-700 text-right">${row.spend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                        <td className="px-5 py-3 text-sm font-medium text-slate-500 text-right">{row.count}</td>
-                                                        <td className="px-5 py-3 text-sm font-medium text-slate-500 text-right">
+                                                        <td className="px-1 py-3 text-sm font-bold text-slate-700 text-right">${row.spend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td className="px-1 py-3 text-sm font-medium text-slate-500 text-right">{row.count}</td>
+                                                        <td className="px-1 py-3 text-sm font-medium text-slate-500 text-right">
                                                             <div className="flex items-center justify-end gap-3">
                                                                 <span className="w-12 text-right text-xs shrink-0">{row.percent.toFixed(1)}%</span>
                                                                 <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
@@ -694,8 +730,8 @@ export default function Analysis() {
                                     </table>
                                 </div>
                             </div>
-                            <div className="md:col-span-4 flex flex-col items-center justify-center bg-slate-50/30 p-6 overflow-hidden">
-                                <div className="text-center mb-6">
+                            <div className="md:col-span-4 flex flex-col items-center justify-center p-4">
+                                <div className="text-center mb-4">
                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Total Expenditures</span>
                                     <span className="text-2xl font-black text-slate-900 tracking-tight">
                                         ${categoryStats.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -723,7 +759,6 @@ export default function Analysis() {
                                                     if (!selectedCategory || selectedCategory !== payload.category) return null;
 
                                                     const RADIAN = Math.PI / 180;
-                                                    // Place label roughly 15px past the outer edge of the slice
                                                     const radius = outerRadius + 15;
                                                     const x = cx + radius * Math.cos(-midAngle * RADIAN);
                                                     const y = cy + radius * Math.sin(-midAngle * RADIAN);
@@ -765,8 +800,6 @@ export default function Analysis() {
                             </div>
                         </div>
                     </div>
-
-
                 </div>
             )}
 
@@ -774,7 +807,7 @@ export default function Analysis() {
             <div className={`bg-surface-card rounded-2xl flex flex-col relative z-20 transition-all duration-300 ${isEditingMode ? 'border border-accent-border ring-4 ring-accent-light shadow-md' : 'border border-divider shadow-sm'}`}>
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                     <div className="flex items-center gap-4">
-                        <h3 className="text-lg font-bold text-slate-900">Filtered Transactions</h3>
+                        <h3 className="text-lg font-bold text-slate-900">Transactions</h3>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent-light text-accent-light-text border border-accent-light">
                             {filteredTransactions.length} items
                         </span>
@@ -1115,6 +1148,6 @@ export default function Analysis() {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

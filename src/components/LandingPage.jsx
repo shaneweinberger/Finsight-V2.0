@@ -95,7 +95,7 @@ export default function LandingPage() {
                             Automated With <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-emerald-600">Finsight.</span>
                         </h1>
                         <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-                            Stop wrestling with messy CSVs. FinSight uses AI to clean, categorize, and analyze your spending automatically.
+                            Stop wrestling with messy speadsheets. FinSight uses AI to clean, categorize, and analyze your spending automatically.
                         </p>
                     </div>
 
