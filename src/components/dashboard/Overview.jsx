@@ -302,7 +302,7 @@ export default function Overview() {
     };
 
     const getColorForCategory = (catName, fallbackIndex = 0) => {
-        if (catName === 'remaining') return '#cbd5e1';
+        if (catName === 'remaining') return '#c7c2c22d';
         const cat = categories.find(c => c.name === catName);
         if (cat?.color) return cat.color;
         const idx = categoryNames.indexOf(catName);
@@ -330,6 +330,7 @@ export default function Overview() {
         });
         const history = chartData.slice(0, -1);
         const historicalAvg = history.reduce((s, b) => s + b.total, 0) / history.length;
+
         let anomalyLabel = 'Normal spending pattern', anomalyValue = 'No unusual activity detected';
         let anomalyColor = 'text-slate-500', anomalyBg = '';
         if (currentData.total === Math.max(...chartData.map(b => b.total))) {
@@ -345,11 +346,13 @@ export default function Overview() {
             anomalyValue = `${Math.round((1 - currentData.total / historicalAvg) * 100)}% below average`;
             anomalyColor = 'text-emerald-600'; anomalyBg = 'bg-emerald-50';
         }
+
         const intervalWord = groupBy.toLowerCase() === 'daily' ? 'day' : groupBy.toLowerCase().slice(0, -2);
         return {
             trend: { value: spendingTrend, label: `vs previous ${intervalWord}` },
             increase: maxIncreaseCat ? { category: maxIncreaseCat, value: maxIncreasePct, label: `vs previous ${intervalWord}` } : null,
             decrease: maxDecreaseCat ? { category: maxDecreaseCat, value: maxDecreasePct, label: `vs previous ${intervalWord}` } : null,
+            average: { label: `Historical ${intervalWord}ly average`, value: historicalAvg },
             anomaly: { label: anomalyLabel, value: anomalyValue, color: anomalyColor, bg: anomalyBg },
         };
     }, [chartData, groupBy]);
@@ -487,7 +490,7 @@ export default function Overview() {
             {/* ── Main overview content (hidden until transactions exist) ──── */}
             {transactions.length > 0 && (<>
                 {/* ── Top-Level Controls ──────────────────────────────────────── */}
-                <div className="sticky top-0 z-20 flex flex-col md:flex-row gap-6 p-5 items-center">
+                <div className="sticky top-0 z-20 flex flex-col md:flex-row gap-6 px-2 py-1 items-center">
                     <div className="flex flex-wrap items-center gap-6 w-full">
                         <div className="flex flex-col gap-1.5 flex-1 min-w-[320px]">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Range</label>
@@ -530,7 +533,7 @@ export default function Overview() {
                         </div>
                     </div>
 
-                    <div className="w-full md:w-auto flex md:ml-auto items-center justify-between md:justify-end gap-6 border-t md:border-t-0 md:border-l border-slate-100 pt-5 md:pt-0 md:pl-6 shrink-0 h-full">
+                    <div className="w-full md:w-auto flex md:ml-auto items-center justify-between md:justify-end gap-6 border-t md:border-t-0 md:border-l border-slate-100 pt-5 md:pt-[22px] md:pl-6 shrink-0 h-full">
                         <label className="flex items-center gap-3 cursor-pointer group">
                             <div className="relative flex items-center">
                                 <input type="checkbox" className="sr-only" checked={focusCategory} onChange={() => setFocusCategory(!focusCategory)} />
@@ -600,7 +603,7 @@ export default function Overview() {
 
                                     {remainingCount > 0 && (
                                         <div className="relative flex items-center group">
-                                            <div className="absolute left-3 w-2.5 h-2.5 rounded-full bg-slate-300 z-10 pointer-events-none" />
+                                            <div className="absolute left-3 w-2.5 h-2.5 rounded-full z-10 pointer-events-none" style={{ backgroundColor: getColorForCategory('remaining') }} />
                                             <select
                                                 className="appearance-none bg-white border border-dashed border-slate-300 text-slate-500 hover:text-accent hover:border-accent-border hover:bg-white font-bold text-xs rounded-full pl-7 pr-7 py-1.5 outline-none cursor-pointer transition-all shadow-sm"
                                                 value=""
@@ -633,7 +636,7 @@ export default function Overview() {
                                             <Bar
                                                 dataKey={selectedCategory}
                                                 fill={getColorForCategory(selectedCategory)}
-                                                radius={[4, 4, 0, 0]}
+                                                radius={[6, 6, 0, 0]}
                                                 className="cursor-pointer"
                                                 onClick={(data, idx, e) => handleBarClick(selectedCategory, data, e)}
                                             >
@@ -655,7 +658,7 @@ export default function Overview() {
                                                     <Bar key={cat} dataKey={cat} stackId="a"
                                                         fill={getColorForCategory(cat, index)}
                                                         className="cursor-pointer"
-                                                        radius={isTop ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                                                        radius={isTop ? [6, 6, 0, 0] : [0, 0, 0, 0]}
                                                         onClick={(data, idx, e) => handleBarClick(cat, data, e)}
                                                     />
                                                 );
@@ -663,9 +666,9 @@ export default function Overview() {
                                             {/* Always rendered LAST → permanently at top of stack. Never conditionally unmounted. */}
                                             <Bar key="remaining" dataKey="remaining"
                                                 name={`Remaining ${remainingCount} categor${remainingCount === 1 ? 'y' : 'ies'}`}
-                                                stackId="a" fill={theme.chart.remaining}
+                                                stackId="a" fill={getColorForCategory('remaining')}
                                                 className={remainingCount > 0 ? 'cursor-pointer' : ''}
-                                                radius={remainingCount > 0 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                                                radius={remainingCount > 0 ? [6, 6, 0, 0] : [0, 0, 0, 0]}
                                                 onClick={remainingCount > 0 ? (data, idx, e) => handleBarClick('Remaining', data, e) : undefined}
                                             />
                                             <Line dataKey="total" stroke="transparent" dot={false} activeDot={false} isAnimationActive={false}>
@@ -790,6 +793,9 @@ export default function Overview() {
                                     primaryMsg={dynamicInsights.decrease ? `${dynamicInsights.decrease.category} ${Math.round(dynamicInsights.decrease.value)}%` : 'No major decreases'}
                                     subMsg={dynamicInsights.decrease ? dynamicInsights.decrease.label : ' '}
                                     colorClass={dynamicInsights.decrease ? 'text-slate-800' : 'text-slate-400'} />
+                                <InsightCard title="Average Spend" icon={<Activity size={12} className="text-indigo-500" />}
+                                    primaryMsg={`$${Math.round(dynamicInsights.average.value).toLocaleString()}`} subMsg={dynamicInsights.average.label}
+                                    colorClass="text-slate-800" />
                                 <InsightCard title="Anomaly Detection" icon={<Activity size={12} className={dynamicInsights.anomaly.color} />}
                                     primaryMsg={dynamicInsights.anomaly.label} subMsg={dynamicInsights.anomaly.value}
                                     colorClass={dynamicInsights.anomaly.color} bgClass={dynamicInsights.anomaly.bg} />

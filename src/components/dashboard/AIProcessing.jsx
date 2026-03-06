@@ -14,7 +14,8 @@ import {
     FileText,
     Info,
     RefreshCw,
-    HelpCircle
+    HelpCircle,
+    Palette
 } from 'lucide-react';
 import { useProcessing } from '../../lib/ProcessingContext';
 
@@ -47,6 +48,47 @@ function ConfirmModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 
                             }`}
                     >
                         {confirmLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Bulk Color Modal ────────────────────────────────────────────────────────
+function BulkColorModal({ value, onChange, onConfirm, onCancel }) {
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+            <div className="bg-surface-card rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-2 mb-4">
+                    <Palette size={20} className="text-accent" />
+                    <h3 className="text-lg font-bold text-slate-900">Bulk Update Colors</h3>
+                </div>
+                <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+                    Paste an array or vector of color hex codes (e.g. <code>c("#273646", "#384655", ...)</code>).
+                    Colors will be applied to categories in their current list order.
+                </p>
+                <textarea
+                    rows={5}
+                    placeholder='c("#273646", "#384655", ...)'
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    className="w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-accent-ring focus:border-accent-border mb-6 font-mono resize-none"
+                    autoFocus
+                />
+                <div className="flex gap-3">
+                    <button
+                        onClick={onCancel}
+                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all font-bold"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        disabled={!value.trim()}
+                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-accent hover:bg-accent-hover transition-all shadow-sm disabled:opacity-40"
+                    >
+                        Apply Colors
                     </button>
                 </div>
             </div>
@@ -97,6 +139,10 @@ export default function AIProcessing() {
     const [editingRule, setEditingRule] = useState(null); // { id, name, rule_text }
     const [editRuleName, setEditRuleName] = useState('');
     const [editRuleText, setEditRuleText] = useState('');
+    const [dragIndex, setDragIndex] = useState(null);
+    const [dragOverIndex, setDragOverIndex] = useState(null);
+    const [showBulkColorModal, setShowBulkColorModal] = useState(false);
+    const [bulkColorInput, setBulkColorInput] = useState('');
 
     // ── Shared state ─────────────────────────────────────────────────────────
     const [loading, setLoading] = useState(true);
@@ -183,7 +229,7 @@ export default function AIProcessing() {
         setLoading(true);
         try {
             const [catRes, ruleRes] = await Promise.all([
-                supabase.from('user_categories').select('*').order('name'),
+                supabase.from('user_categories').select('*').order('order_index'),
                 supabase.from('user_rules').select('*').order('created_at', { ascending: false })
             ]);
             if (catRes.error) throw catRes.error;
@@ -224,10 +270,15 @@ export default function AIProcessing() {
             const { data: { user } } = await supabase.auth.getUser();
             const { data, error } = await supabase
                 .from('user_categories')
-                .insert([{ name: newCatName.trim(), color: newCatColor, user_id: user.id }])
+                .insert([{
+                    name: newCatName.trim(),
+                    color: newCatColor,
+                    user_id: user.id,
+                    order_index: categories.length
+                }])
                 .select();
             if (error) throw error;
-            setCategories(prev => [...prev, ...data].sort((a, b) => a.name.localeCompare(b.name)));
+            setCategories(prev => [...prev, ...data]);
             setNewCatName('');
             setNewCatColor(DEFAULT_COLORS[(categories.length + 1) % DEFAULT_COLORS.length]);
             setShowCatForm(false);
@@ -299,7 +350,16 @@ export default function AIProcessing() {
                 try {
                     const { error } = await supabase.from('user_categories').delete().eq('id', cat.id);
                     if (error) throw error;
-                    setCategories(prev => prev.filter(c => c.id !== cat.id));
+
+                    // Re-calculate order_index for remaining categories to fill the gap
+                    const remainingCats = categories.filter(c => c.id !== cat.id);
+                    const updatedCats = remainingCats.map((c, i) => ({ ...c, order_index: i }));
+                    setCategories(updatedCats);
+
+                    // Update DB with new order_index
+                    for (const rc of updatedCats) {
+                        await supabase.from('user_categories').update({ order_index: rc.order_index }).eq('id', rc.id);
+                    }
 
                     if (editingCat?.id === cat.id) cancelEditCategory();
                 } catch (err) {
@@ -308,6 +368,57 @@ export default function AIProcessing() {
             },
             onCancel: () => setConfirmModal(null)
         });
+    };
+
+    const handleDragStart = (e, index) => {
+        setDragIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+        // Add a ghost image or styling if needed
+    };
+
+    const handleDragOver = (e, index) => {
+        e.preventDefault();
+        setDragOverIndex(index);
+    };
+
+    const handleDrop = async (e, index) => {
+        e.preventDefault();
+        if (dragIndex === null || dragIndex === index) {
+            setDragIndex(null);
+            setDragOverIndex(null);
+            return;
+        }
+
+        const newCats = [...categories];
+        const [movedItem] = newCats.splice(dragIndex, 1);
+        newCats.splice(index, 0, movedItem);
+
+        // Update local state immediately for snappy feel
+        const orderedCats = newCats.map((cat, i) => ({ ...cat, order_index: i }));
+        setCategories(orderedCats);
+        setDragIndex(null);
+        setDragOverIndex(null);
+
+        // Persist to DB
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const updates = orderedCats.map(cat => ({
+                id: cat.id,
+                user_id: user.id,
+                name: cat.name,
+                color: cat.color,
+                order_index: cat.order_index
+            }));
+
+            const { error } = await supabase
+                .from('user_categories')
+                .upsert(updates);
+
+            if (error) throw error;
+        } catch (err) {
+            console.error('Failed to save category order:', err);
+            setError('Failed to save category order: ' + err.message);
+        }
     };
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -407,6 +518,52 @@ export default function AIProcessing() {
             },
             onCancel: () => setConfirmModal(null)
         });
+    };
+
+    const handleApplyBulkColors = async (e) => {
+        e.preventDefault();
+        if (!bulkColorInput.trim()) return;
+
+        try {
+            // Regex to match hex codes: # followed by 3 or 6 hex digits
+            const hexMatches = bulkColorInput.match(/#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}/g);
+            if (!hexMatches || hexMatches.length === 0) {
+                throw new Error("No valid color hex codes found in input.");
+            }
+
+            const newTotal = Math.min(categories.length, hexMatches.length);
+            const updatedCats = [...categories];
+
+            // Map matches to categories based on current order
+            for (let i = 0; i < newTotal; i++) {
+                updatedCats[i] = { ...updatedCats[i], color: hexMatches[i] };
+            }
+
+            // Update local state
+            setCategories(updatedCats);
+
+            // Persist to DB
+            const { data: { user } } = await supabase.auth.getUser();
+            const updates = updatedCats.slice(0, newTotal).map(cat => ({
+                id: cat.id,
+                user_id: user.id,
+                name: cat.name,
+                color: cat.color,
+                order_index: cat.order_index
+            }));
+
+            const { error } = await supabase
+                .from('user_categories')
+                .upsert(updates);
+
+            if (error) throw error;
+
+            setToast({ message: `Successfully updated ${newTotal} category colors.`, type: 'success' });
+            setShowBulkColorModal(false);
+            setBulkColorInput('');
+        } catch (err) {
+            setError(err.message);
+        }
     };
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -591,16 +748,25 @@ export default function AIProcessing() {
                             <Tags size={16} className="text-accent" />
                             <h2 className="text-sm font-bold text-slate-800">Categories</h2>
                             <span className="text-xs text-slate-400 font-medium">{categories.length}</span>
-                            <button
-                                onClick={() => { setShowCatForm(!showCatForm); setEditingCat(null); }}
-                                className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${showCatForm
-                                    ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                    : 'bg-accent text-white hover:bg-accent-hover shadow-sm'
-                                    }`}
-                            >
-                                {showCatForm ? <X size={12} /> : <Plus size={12} />}
-                                {showCatForm ? 'Cancel' : 'New Category'}
-                            </button>
+                            <div className="ml-auto flex items-center gap-2">
+                                <button
+                                    onClick={() => setShowBulkColorModal(true)}
+                                    className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent-light/30 rounded-lg transition-all"
+                                    title="Bulk edit colors"
+                                >
+                                    <Palette size={16} />
+                                </button>
+                                <button
+                                    onClick={() => { setShowCatForm(!showCatForm); setEditingCat(null); }}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${showCatForm
+                                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        : 'bg-accent text-white hover:bg-accent-hover shadow-sm'
+                                        }`}
+                                >
+                                    {showCatForm ? <X size={12} /> : <Plus size={12} />}
+                                    {showCatForm ? 'Cancel' : 'New Category'}
+                                </button>
+                            </div>
                         </div>
 
                         <div className="p-5 space-y-4">
@@ -645,9 +811,24 @@ export default function AIProcessing() {
                             {categories.length === 0 ? (
                                 <p className="text-xs text-slate-400 py-4 text-center">No categories yet.</p>
                             ) : (
-                                <div className="space-y-0.5 max-h-[440px] overflow-y-auto pr-1">
-                                    {categories.map((cat) => (
-                                        <div key={cat.id}>
+                                <div className="space-y-0.5 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+                                    {categories.map((cat, index) => (
+                                        <div
+                                            key={cat.id}
+                                            draggable={!editingCat}
+                                            onDragStart={(e) => handleDragStart(e, index)}
+                                            onDragOver={(e) => handleDragOver(e, index)}
+                                            onDrop={(e) => handleDrop(e, index)}
+                                            className={`relative transition-all duration-200 ${dragOverIndex === index && dragIndex !== index
+                                                ? 'pt-8' // Create space for the item being dropped
+                                                : ''
+                                                }`}
+                                        >
+                                            {/* Drop indicator line */}
+                                            {dragOverIndex === index && dragIndex !== index && (
+                                                <div className="absolute top-2 left-0 right-0 h-0.5 bg-accent rounded-full animate-pulse" />
+                                            )}
+
                                             {editingCat?.id === cat.id ? (
                                                 /* Edit inline */
                                                 <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-accent-light/50 border border-accent-light">
@@ -679,7 +860,8 @@ export default function AIProcessing() {
                                                 </div>
                                             ) : (
                                                 /* Display row */
-                                                <div className="group flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 transition-colors">
+                                                <div className={`group flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing ${dragIndex === index ? 'opacity-40 bg-slate-100' : ''
+                                                    }`}>
                                                     <div
                                                         className="w-3 h-3 rounded-full shrink-0 ring-1 ring-black/5"
                                                         style={{ backgroundColor: cat.color || DEFAULT_COLORS[categories.indexOf(cat) % DEFAULT_COLORS.length] }}
@@ -687,13 +869,13 @@ export default function AIProcessing() {
                                                     <span className="text-sm text-slate-700 flex-1">{cat.name}</span>
                                                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
                                                         <button
-                                                            onClick={() => startEditCategory(cat)}
+                                                            onClick={(e) => { e.stopPropagation(); startEditCategory(cat); }}
                                                             className="p-1 text-slate-300 hover:text-accent rounded transition-colors"
                                                         >
                                                             <Pencil size={13} />
                                                         </button>
                                                         <button
-                                                            onClick={() => handleDeleteCategory(cat)}
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat); }}
                                                             className="p-1 text-slate-300 hover:text-rose-400 rounded transition-colors"
                                                         >
                                                             <Trash2 size={13} />
@@ -1060,6 +1242,16 @@ export default function AIProcessing() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ═══ Bulk Color Modal ═════════════════════════════════════ */}
+            {showBulkColorModal && (
+                <BulkColorModal
+                    value={bulkColorInput}
+                    onChange={setBulkColorInput}
+                    onConfirm={handleApplyBulkColors}
+                    onCancel={() => { setShowBulkColorModal(false); setBulkColorInput(''); }}
+                />
             )}
 
             {/* ═══ Confirmation Modal ═══════════════════════════════════ */}
