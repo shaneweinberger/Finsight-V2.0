@@ -18,6 +18,7 @@ import {
     Palette
 } from 'lucide-react';
 import { useProcessing } from '../../lib/ProcessingContext';
+import { CATEGORY_COLORS } from '../../lib/categoryColors';
 
 // ─── Default color palette for new categories ────────────────────────────────
 const DEFAULT_COLORS = [
@@ -68,6 +69,18 @@ function BulkColorModal({ value, onChange, onConfirm, onCancel }) {
                     Paste an array or vector of color hex codes (e.g. <code>c("#273646", "#384655", ...)</code>).
                     Colors will be applied to categories in their current list order.
                 </p>
+                <div className="mb-4">
+                    <button
+                        onClick={() => {
+                            const vector = `c(${CATEGORY_COLORS.map(c => `"${c}"`).join(', ')})`;
+                            onChange(vector);
+                        }}
+                        className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-accent-light text-accent hover:bg-accent-light/50 transition-all flex items-center gap-1.5"
+                    >
+                        <RefreshCw size={12} />
+                        Suggested
+                    </button>
+                </div>
                 <textarea
                     rows={5}
                     placeholder='c("#273646", "#384655", ...)'

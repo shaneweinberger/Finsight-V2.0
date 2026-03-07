@@ -126,21 +126,63 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* How it Works Section */}
-            <section id="how-it-works" className="relative z-10 min-h-screen w-full snap-start flex flex-col justify-center px-4 py-20 bg-[var(--lp-bg)]">
+            {/* Features Grid */}
+            <section id="features" className="relative z-10 min-h-screen w-full snap-start flex flex-col justify-start px-6 md:px-12 pt-36 pb-20 bg-[var(--lp-bg)]">
                 <div className="max-w-6xl mx-auto w-full">
                     <div className="text-center mb-16">
                         <h2 className="text-3xl md:text-5xl font-bold text-[var(--lp-primary)] mb-6">
-                            From Raw Data to Real Intelligence
+                            {landingPageConfig.featuresSection.title}
                         </h2>
                         <p className="text-[var(--lp-primary)]/70 text-lg md:text-xl max-w-2xl mx-auto">
+                            {landingPageConfig.featuresSection.subtitle}
+                        </p>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                        {landingPageConfig.features.map((feature, i) => (
+                            <div key={i} className="group p-5 rounded-3xl bg-[var(--lp-bg)] border border-[var(--lp-accent-border)] hover:bg-[var(--lp-primary)]/5 hover:border-[var(--lp-primary)]/20 hover:-translate-y-2 transition-all duration-300 shadow-md hover:shadow-xl flex flex-col">
+                                {/* Feature Screenshot */}
+                                <div className="w-full h-32 lg:h-40 bg-[var(--lp-primary)]/5 rounded-xl mb-5 flex items-center justify-center border border-[var(--lp-accent-border)] overflow-hidden relative">
+                                    {feature.image ? (
+                                        <img
+                                            src={feature.image}
+                                            alt={feature.title}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                        />
+                                    ) : (
+                                        <div className="text-[var(--lp-primary)]/40 font-mono text-[10px] sm:text-xs tracking-widest uppercase flex flex-col items-center gap-2 group-hover:scale-110 transition-transform duration-700">
+                                            <LayoutDashboard size={24} className="opacity-50" />
+                                            Screenshot
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex-1 flex flex-col items-center text-center">
+                                    <h3 className="text-lg md:text-xl font-bold text-[var(--lp-primary)] mb-2 leading-tight">{feature.title}</h3>
+                                    <p className="text-[var(--lp-primary)]/70 leading-relaxed text-xs sm:text-sm whitespace-pre-line">
+                                        {feature.description}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* How it Works Section */}
+            <section id="how-it-works" className="relative z-10 min-h-screen w-full snap-start flex flex-col justify-center px-4 py-20 bg-[var(--lp-primary)] text-[var(--lp-primary-text)]">
+                <div className="max-w-6xl mx-auto w-full">
+                    <div className="text-center mb-16">
+                        <h2 className="text-3xl md:text-5xl font-bold mb-6">
+                            From Raw Data to Real Intelligence
+                        </h2>
+                        <p className="text-[var(--lp-primary-text)]/80 text-lg md:text-xl max-w-2xl mx-auto">
                             Our 4-step local pipeline transforms messy CSVs into a pristine financial system.
                         </p>
                     </div>
 
                     <div className="grid md:grid-cols-4 gap-8 relative">
                         {/* Connector Line (Desktop) */}
-                        <div className="hidden md:block absolute top-[20%] left-[10%] right-[10%] h-[1px] bg-[var(--lp-primary)]/20 z-0" />
+                        <div className="hidden md:block absolute top-[20%] left-[10%] right-[10%] h-[1px] bg-[var(--lp-primary-text)]/20 z-0" />
 
                         {[
                             {
@@ -168,75 +210,15 @@ export default function LandingPage() {
                                 desc: "Dashboards and AI Chatbot update instantly with your clean, categorized 'Gold' dataset."
                             }
                         ].map((item, i) => (
-                            <div key={i} className="relative z-10 bg-[var(--lp-bg)] p-8 rounded-3xl shadow-lg border border-[var(--lp-accent-light)] hover:shadow-xl transition-all duration-300 hover:-translate-y-1 group">
+                            <div key={i} className="relative z-10 bg-[var(--lp-primary)] p-8 rounded-3xl shadow-lg border border-[var(--lp-primary-text)]/10 hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 group hover:bg-[var(--lp-primary-text)]/5">
                                 <div className="text-center">
-                                    <span className="text-3xl font-light text-[var(--lp-primary)]/30 group-hover:text-[var(--lp-primary)]/60 transition-colors block mb-4">{item.step}</span>
-                                    <h3 className="font-bold text-xl text-[var(--lp-primary)] mb-1">{item.title}</h3>
-                                    <span className="text-xs font-semibold text-[var(--lp-primary)]/60 uppercase tracking-widest block mb-4">{item.subtitle}</span>
-                                    <p className="text-sm text-[var(--lp-primary)]/80 leading-relaxed">{item.desc}</p>
+                                    <span className="text-3xl font-light text-[var(--lp-primary-text)]/30 group-hover:text-[var(--lp-primary-text)]/60 transition-colors block mb-4">{item.step}</span>
+                                    <h3 className="font-bold text-xl mb-1">{item.title}</h3>
+                                    <span className="text-xs font-semibold text-[var(--lp-primary-text)]/60 uppercase tracking-widest block mb-4">{item.subtitle}</span>
+                                    <p className="text-sm text-[var(--lp-primary-text)]/80 leading-relaxed">{item.desc}</p>
                                 </div>
                             </div>
                         ))}
-                    </div>
-                </div>
-            </section>
-
-            {/* Features Grid */}
-            <section id="features" className="relative z-10 min-h-screen w-full snap-start flex flex-col justify-center px-4 py-20 bg-[var(--lp-primary)] text-[var(--lp-primary-text)]">
-                <div className="max-w-6xl mx-auto w-full">
-                    <div className="text-center mb-16">
-                        <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[var(--lp-primary-text)] to-[var(--lp-primary-text)]/80 mb-6">
-                            Everything You Need in a Finance Tracker
-                        </h2>
-                        <p className="text-[var(--lp-primary-text)]/80 text-lg md:text-xl">Built for power users who want control, speed, and privacy.</p>
-                    </div>
-
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {/* AI Core */}
-                        <div className="col-span-1 lg:col-span-2 group p-10 rounded-3xl bg-[var(--lp-primary-text)]/5 border border-[var(--lp-primary-text)]/10 shadow-xl overflow-hidden relative hover:bg-[var(--lp-primary-text)]/10 transition-colors">
-                            <div className="relative z-10">
-                                <h3 className="text-3xl font-bold mb-4">AI-Powered Insights</h3>
-                                <p className="text-[var(--lp-primary-text)]/80 leading-relaxed max-w-lg mb-8 text-lg">
-                                    Get instant answers to complex questions like "How much did I spend on Uber in March?" without manually sorting data. Our Agentic system scopes the data and verifies the math.
-                                </p>
-                                <div className="flex gap-3">
-                                    <span className="px-4 py-2 rounded-full bg-[var(--lp-primary-text)]/10 text-sm font-medium border border-[var(--lp-primary-text)]/20 backdrop-blur-md">Natural Language</span>
-                                    <span className="px-4 py-2 rounded-full bg-[var(--lp-primary-text)]/10 text-sm font-medium border border-[var(--lp-primary-text)]/20 backdrop-blur-md">Math Verification</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Smart Transactions */}
-                        <div className="group p-8 rounded-3xl bg-[var(--lp-primary-text)]/5 border border-[var(--lp-primary-text)]/10 hover:bg-[var(--lp-primary-text)]/10 transition-all duration-300">
-                            <h3 className="text-xl font-bold mb-3">Unified Dashboard</h3>
-                            <p className="text-[var(--lp-primary-text)]/70 leading-relaxed">
-                                Upload Credit and Debit CSVs separately but view them in a single, unified list. Filter, search, and edit thousands of transactions.
-                            </p>
-                        </div>
-
-                        {/* Automation */}
-                        <div className="group p-8 rounded-3xl bg-[var(--lp-primary-text)]/5 border border-[var(--lp-primary-text)]/10 hover:bg-[var(--lp-primary-text)]/10 transition-all duration-300">
-                            <h3 className="text-xl font-bold mb-3">Rule Automation</h3>
-                            <p className="text-[var(--lp-primary-text)]/70 leading-relaxed">
-                                Create "If This, Then That" rules. One-click "Reprocess" applies new rules to all historical data instantly.
-                            </p>
-                        </div>
-
-                        {/* Privacy */}
-                        <div className="group p-8 rounded-3xl bg-[var(--lp-primary-text)]/5 border border-[var(--lp-primary-text)]/10 hover:bg-[var(--lp-primary-text)]/10 transition-all duration-300">
-                            <h3 className="text-xl font-bold mb-3">Local First Security</h3>
-                            <p className="text-[var(--lp-primary-text)]/70 leading-relaxed">
-                                Your financial data stays local. We process CSVs on your machine, not in a third-party cloud database.
-                            </p>
-                        </div>
-
-                        {/* Analytics */}
-                        <div className="group p-8 rounded-3xl bg-[var(--lp-primary-text)]/5 border border-[var(--lp-primary-text)]/10 hover:bg-[var(--lp-primary-text)]/10 transition-all duration-300">
-                            <h3 className="text-xl font-bold mb-3">Monthly Analytics</h3>
-                            <p className="text-[var(--lp-primary-text)]/70 leading-relaxed">
-                                Interactive charts to spot trends, spending anomalies, and month-over-month comparisons.
-                            </p>
-                        </div>
                     </div>
                 </div>
             </section>

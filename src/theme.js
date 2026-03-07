@@ -17,11 +17,9 @@ export const theme = {
     // fallback in charts). Source of truth: src/lib/categoryColors.js.
     // Palette: dark green → teal → navy → slate/grey extended range.
     categoryPalette: [
-        '#d9ed92', '#b5e48c', '#99d98c', '#76c893', '#52b69a',
-        '#34a0a4', '#168aad', '#1a759f', '#1e6091', '#184e77',
-        '#0f3d57', '#0a2e3f', '#2d6a4f', '#1b4332', '#40916c',
-        '#52796f', '#354f52', '#4a6fa5', '#6b7f6e', '#556b5c',
-        '#718096', '#4a5568', '#2d3748',
+        "#FDF9F5", "#F7F0E8", "#EFE5D8", "#E7DAC9", "#DCC7B6",
+        "#CBB49E", "#B8A089", "#A3B0A7", "#86968B", "#697D70",
+        "#4C6356", "#393939", "#2B2018"
     ],
 
     // ── Surfaces ──────────────────────────────────────────────────────────────
