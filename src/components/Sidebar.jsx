@@ -115,7 +115,10 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                         style={{ color: theme.sidebar.logoText }}
                     >
                         <div className="w-8 h-8 rounded-lg bg-white text-slate-900 flex items-center justify-center shrink-0">F</div>
-                        FinSight
+                        <div className="flex flex-col leading-tight">
+                            <span>FinSight</span>
+                            <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-emerald-400 -mt-0.5 ml-0.5">Beta</span>
+                        </div>
                     </div>
                 )}
 
@@ -167,7 +170,11 @@ export default function Sidebar({ user, isCollapsed, setIsCollapsed }) {
                                 }}
                             />
                             <DropdownItem icon={<Zap size={16} />} label="Upgrade Plan" />
-                            <DropdownItem icon={<AlertTriangle size={16} />} label="Report a Bug" />
+                            <DropdownItem
+                                icon={<AlertTriangle size={16} />}
+                                label="Report a Bug / Feature"
+                                onClick={() => window.open('https://docs.google.com/spreadsheets/d/136YRamtpHj4APX6x8WxDVNcAYahn4fFEMnfQd4y0w6c/edit?usp=sharing', '_blank')}
+                            />
                             <DropdownItem
                                 icon={<LogOut size={16} />}
                                 label="Sign Out"
