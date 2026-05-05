@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { theme } from '../../theme';
 import { parseBankCSV } from '../../utils/csvParser';
 import {
     UploadCloud,
@@ -14,6 +13,12 @@ import {
     Trash2,
     Lock,
     AlertTriangle,
+    ChevronUp,
+    ChevronDown,
+    ChevronsUpDown,
+    ChevronLeft,
+    ChevronRight,
+    Filter
 } from 'lucide-react';
 import { useProcessing } from '../../lib/ProcessingContext';
 
@@ -41,6 +46,77 @@ export default function Processing() {
 
     // ── Upload history ────────────────────────────────────────────────────────
     const [uploadHistory, setUploadHistory] = useState([]);
+
+    // ── Table Filters, Sorting & Pagination ──────────────────────────────────
+    const [sortConfig, setSortConfig] = useState({ key: 'created_at', direction: 'desc' });
+    const [filterAccount, setFilterAccount] = useState('all');
+    const [filterDate, setFilterDate] = useState('all');
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [currentPage, setCurrentPage] = useState(1);
+
+    const uniqueAccounts = React.useMemo(() => {
+        return [...new Set(uploadHistory.map(h => h.transaction_account))].filter(Boolean).sort();
+    }, [uploadHistory]);
+
+    const uniqueDates = React.useMemo(() => {
+        const dates = uploadHistory.map(h => new Date(h.created_at).toLocaleDateString('en-US'));
+        return [...new Set(dates)].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    }, [uploadHistory]);
+
+    const processedHistory = React.useMemo(() => {
+        let filtered = uploadHistory.filter(item => {
+            if (filterAccount !== 'all' && item.transaction_account !== filterAccount) return false;
+            if (filterDate !== 'all') {
+                const itemDate = new Date(item.created_at).toLocaleDateString('en-US');
+                if (itemDate !== filterDate) return false;
+            }
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            let aVal = a[sortConfig.key];
+            let bVal = b[sortConfig.key];
+
+            if (sortConfig.key === 'created_at') {
+                aVal = new Date(aVal).getTime();
+                bVal = new Date(bVal).getTime();
+            } else if (sortConfig.key === 'transaction_account') {
+                aVal = (aVal || '').toLowerCase();
+                bVal = (bVal || '').toLowerCase();
+            }
+
+            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return filtered;
+    }, [uploadHistory, filterAccount, filterDate, sortConfig]);
+
+    const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(processedHistory.length / itemsPerPage);
+    const displayHistory = React.useMemo(() => {
+        if (itemsPerPage === 'all') return processedHistory;
+        const start = (currentPage - 1) * itemsPerPage;
+        return processedHistory.slice(start, start + itemsPerPage);
+    }, [processedHistory, currentPage, itemsPerPage]);
+
+    // Reset to page 1 if filters/itemsPerPage change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filterAccount, filterDate, itemsPerPage, sortConfig]);
+
+    const requestSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const SortIndicator = ({ columnKey }) => {
+        if (sortConfig.key !== columnKey) return <ChevronsUpDown size={14} className="opacity-30" />;
+        return sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-accent" /> : <ChevronDown size={14} className="text-accent" />;
+    };
 
     // ── Fetch accounts ────────────────────────────────────────────────────────
     const fetchAccounts = useCallback(async () => {
@@ -559,69 +635,213 @@ export default function Processing() {
 
             {/* ── Uploaded Files table (full-width below) ────────────── */}
             <div className="mt-10">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Uploaded Files</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest shrink-0">Uploaded Files</p>
+                    
+                    {/* Controls Row */}
+                    {uploadHistory.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-slate-500">Show:</span>
+                            <select
+                                className="text-xs bg-white border border-slate-200 outline-none focus:ring-1 focus:ring-accent-ring rounded-lg px-2 py-1.5 cursor-pointer font-medium text-slate-700 shadow-sm"
+                                value={itemsPerPage}
+                                onChange={(e) => setItemsPerPage(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                            >
+                                <option value={10}>10</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                    )}
+                </div>
+
                 {uploadHistory.length === 0 ? (
                     <p className="text-sm text-slate-400 py-4">No files uploaded yet.</p>
                 ) : (
-                    <div className="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-slate-100">
-                                    <th className="px-5 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">File</th>
-                                    <th className="px-5 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Account</th>
-                                    <th className="px-5 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Upload Date</th>
-                                    <th className="px-5 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Date Range</th>
-                                    <th className="px-5 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
-                                    <th className="px-5 py-2.5 w-10" />
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {uploadHistory.map((file) => (
-                                    <tr key={file.file_id} className="group hover:bg-slate-50/60 transition-colors">
-                                        <td className="px-5 py-3">
+                    <div className="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden flex flex-col">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                                <thead>
+                                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                                        <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
+                                            File
+                                        </th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider select-none group">
                                             <div className="flex items-center gap-2">
-                                                <FileText size={13} className="text-slate-300 shrink-0" />
-                                                <span className="text-sm text-slate-700 font-medium">{file.file_name || 'Unnamed'}</span>
+                                                <div 
+                                                    className="flex items-center gap-1.5 cursor-pointer hover:text-slate-800 transition-colors"
+                                                    onClick={() => requestSort('transaction_account')}
+                                                >
+                                                    Account
+                                                    <div className={`transition-opacity ${sortConfig.key === 'transaction_account' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                        <SortIndicator columnKey="transaction_account" />
+                                                    </div>
+                                                </div>
+                                                <div className="relative flex items-center justify-center w-5 h-5 rounded hover:bg-slate-200/60 transition-colors" title="Filter by Account">
+                                                    <Filter size={12} className={`absolute pointer-events-none ${filterAccount !== 'all' ? 'text-accent' : 'text-slate-400'}`} />
+                                                    {filterAccount !== 'all' && (
+                                                        <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-accent rounded-full border border-white" />
+                                                    )}
+                                                    <select
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                        value={filterAccount}
+                                                        onChange={(e) => setFilterAccount(e.target.value)}
+                                                    >
+                                                        <option value="all">All Accounts</option>
+                                                        {uniqueAccounts.map(acc => (
+                                                            <option key={acc} value={acc}>{acc}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </div>
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{file.transaction_account}</span>
-                                        </td>
-                                        <td className="px-5 py-3 text-sm text-slate-400 whitespace-nowrap">
-                                            {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                        </td>
-                                        <td className="px-5 py-3 text-sm text-slate-400 whitespace-nowrap">
-                                            {file.minDate && file.maxDate ? (
-                                                file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ===
-                                                    file.maxDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                                    ? file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                                    : `${file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${file.maxDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                                            ) : (
-                                                <span className="text-slate-300">—</span>
-                                            )}
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${file.status === 'processed' ? 'text-emerald-600' :
-                                                file.status === 'error' ? 'text-rose-500' : 'text-amber-500'
-                                                }`}>
-                                                <div className={`w-1.5 h-1.5 rounded-full ${file.status === 'processed' ? 'bg-emerald-500' :
-                                                    file.status === 'error' ? 'bg-rose-500' : 'bg-amber-400 animate-pulse'
-                                                    }`} />
-                                                {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <button
-                                                onClick={() => handleDeleteFile(file.file_id)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-rose-400 rounded transition-all"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </td>
+                                        </th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider select-none group">
+                                            <div className="flex items-center gap-2">
+                                                <div 
+                                                    className="flex items-center gap-1.5 cursor-pointer hover:text-slate-800 transition-colors"
+                                                    onClick={() => requestSort('created_at')}
+                                                >
+                                                    Upload Date
+                                                    <div className={`transition-opacity ${sortConfig.key === 'created_at' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                        <SortIndicator columnKey="created_at" />
+                                                    </div>
+                                                </div>
+                                                <div className="relative flex items-center justify-center w-5 h-5 rounded hover:bg-slate-200/60 transition-colors" title="Filter by Upload Date">
+                                                    <Filter size={12} className={`absolute pointer-events-none ${filterDate !== 'all' ? 'text-accent' : 'text-slate-400'}`} />
+                                                    {filterDate !== 'all' && (
+                                                        <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-accent rounded-full border border-white" />
+                                                    )}
+                                                    <select
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                        value={filterDate}
+                                                        onChange={(e) => setFilterDate(e.target.value)}
+                                                    >
+                                                        <option value="all">All Dates</option>
+                                                        {uniqueDates.map(date => (
+                                                            <option key={date} value={date}>{date}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
+                                            Date Range
+                                        </th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider select-none">
+                                            Status
+                                        </th>
+                                        <th className="px-5 py-3 w-10"></th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 bg-white">
+                                    {displayHistory.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
+                                                No files match your filters.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        displayHistory.map((file) => (
+                                            <tr key={file.file_id} className="group hover:bg-slate-50/60 transition-colors">
+                                                <td className="px-5 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <FileText size={14} className="text-slate-300 shrink-0" />
+                                                        <span className="text-sm text-slate-700 font-medium">{file.file_name || 'Unnamed'}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-5 py-3">
+                                                    <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md">{file.transaction_account}</span>
+                                                </td>
+                                                <td className="px-5 py-3 text-sm font-medium text-slate-500 whitespace-nowrap">
+                                                    {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </td>
+                                                <td className="px-5 py-3 text-sm text-slate-400 whitespace-nowrap">
+                                                    {file.minDate && file.maxDate ? (
+                                                        file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ===
+                                                            file.maxDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                            ? file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                                            : `${file.minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${file.maxDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                                    ) : (
+                                                        <span className="text-slate-300">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-5 py-3">
+                                                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${file.status === 'processed' ? 'text-emerald-600' :
+                                                        file.status === 'error' ? 'text-rose-500' : 'text-amber-500'
+                                                        }`}>
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${file.status === 'processed' ? 'bg-emerald-500' :
+                                                            file.status === 'error' ? 'bg-rose-500' : 'bg-amber-400 animate-pulse'
+                                                            }`} />
+                                                        {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                                                    </span>
+                                                </td>
+                                                <td className="px-5 py-3">
+                                                    <button
+                                                        onClick={() => handleDeleteFile(file.file_id)}
+                                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-all"
+                                                        title="Delete file"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Pagination Footer */}
+                        {itemsPerPage !== 'all' && totalPages > 1 && (
+                            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+                                <p className="text-xs text-slate-500 font-medium">
+                                    Showing <span className="font-bold text-slate-700">{((currentPage - 1) * itemsPerPage) + 1}</span> to <span className="font-bold text-slate-700">{Math.min(currentPage * itemsPerPage, processedHistory.length)}</span> of <span className="font-bold text-slate-700">{processedHistory.length}</span> results
+                                </p>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+                                    <div className="flex items-center gap-1 px-2">
+                                        {Array.from({ length: totalPages }).map((_, i) => {
+                                            const page = i + 1;
+                                            // Show limited pages if too many
+                                            if (totalPages > 5) {
+                                                if (page !== 1 && page !== totalPages && Math.abs(page - currentPage) > 1) {
+                                                    if (page === 2 || page === totalPages - 1) return <span key={page} className="text-slate-400 text-xs px-1">...</span>;
+                                                    return null;
+                                                }
+                                            }
+                                            return (
+                                                <button
+                                                    key={page}
+                                                    onClick={() => setCurrentPage(page)}
+                                                    className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold transition-colors ${
+                                                        currentPage === page 
+                                                            ? 'bg-accent text-white' 
+                                                            : 'text-slate-600 hover:bg-slate-200'
+                                                    }`}
+                                                >
+                                                    {page}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
