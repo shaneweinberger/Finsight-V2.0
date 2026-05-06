@@ -97,10 +97,13 @@ serve(async (req: { method: string; }) => {
         responseSchema,
     };
 
-    // Primary model + fallback for when the primary is overloaded
+    // Primary model + fallbacks for when the primary is overloaded.
+    // gemini-2.0-flash was retired by Google (404 as of May 2026).
+    // Cascade: best quality → lighter/faster → lightest (highest availability).
     const MODELS = [
         { name: "gemini-2.5-flash", instance: genAI.getGenerativeModel({ model: "gemini-2.5-flash", generationConfig }) },
-        { name: "gemini-2.0-flash", instance: genAI.getGenerativeModel({ model: "gemini-2.0-flash", generationConfig }) },
+        { name: "gemini-2.5-flash-lite", instance: genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite", generationConfig }) },
+        { name: "gemini-2.0-flash-lite", instance: genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite", generationConfig }) },
     ];
     const MAX_RETRIES = 3;
 
@@ -285,9 +288,9 @@ serve(async (req: { method: string; }) => {
       `;
 
             // ── D. Call Gemini with retry + fallback ────────────────────────
-            // Strategy: try primary model (gemini-2.5-flash) up to 3 times with
-            // exponential backoff on 503/429 errors. If all attempts fail, switch
-            // to fallback model (gemini-2.0-flash) and retry 3 more times.
+            // Strategy: try each model up to 3 times with exponential backoff
+            // on 503/429 errors. If all attempts fail, cascade to the next model.
+            // Chain: gemini-2.5-flash → gemini-2.5-flash-lite → gemini-2.0-flash-lite
             console.log(`[4] Calling Gemini for user ${userId}...`);
             let response;
             let modelUsed = MODELS[0].name;
