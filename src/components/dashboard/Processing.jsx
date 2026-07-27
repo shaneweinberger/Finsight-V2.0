@@ -264,8 +264,10 @@ export default function Processing() {
         startProcessing('Uploading and categorizing your transactions with AI…');
 
         try {
-            // Smart-parse the CSV: auto-detects headers vs. headerless formats
-            const { transactions: parsed, error: parseError } = await parseBankCSV(pendingFile);
+            // Smart-parse the CSV: auto-detects headers vs. headerless formats.
+            // `skippedCount` covers rows the parser rejected as unusable —
+            // spreadsheet padding, footer totals, undated rows.
+            const { transactions: parsed, error: parseError, skippedCount = 0 } = await parseBankCSV(pendingFile);
 
             if (parseError) {
                 setParseErrorModal({ open: true, message: parseError });
@@ -275,7 +277,12 @@ export default function Processing() {
             }
 
             if (parsed.length === 0) {
-                setStatus({ type: 'error', message: 'No transactions found in the CSV file.' });
+                setStatus({
+                    type: 'error',
+                    message: skippedCount > 0
+                        ? `No usable transactions found — all ${skippedCount} row${skippedCount === 1 ? '' : 's'} were blank or missing a date/amount.`
+                        : 'No transactions found in the CSV file.'
+                });
                 setProcessing(false);
                 stopProcessing();
                 return;
@@ -294,7 +301,11 @@ export default function Processing() {
                 status: 'pending'
             }));
 
-            setStatus({ type: 'info', message: 'Uploading…' });
+            const skipNote = skippedCount > 0
+                ? ` (skipped ${skippedCount} blank row${skippedCount === 1 ? '' : 's'})`
+                : '';
+
+            setStatus({ type: 'info', message: `Uploading ${parsed.length} transactions${skipNote}…` });
             const { error } = await supabase.schema('bronze').from('transactions').insert(transactions);
             if (error) throw error;
 

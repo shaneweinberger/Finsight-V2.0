@@ -38,6 +38,36 @@ const responseSchema = {
     },
 };
 
+// ── Helper: normalize a raw_data date to a YYYY-MM-DD calendar string ────────
+// Mirrors `normalizeDate` in src/utils/csvParser.js. Kept timezone-free on
+// purpose: `new Date(x).toISOString()` shifts the calendar day depending on the
+// server's UTC offset and on whether the input is ISO or MM/DD/YYYY.
+// Returns null when unparseable so callers can skip the row.
+function normalizeRawDate(value: any): string | null {
+    if (value === null || value === undefined) return null;
+    const str = String(value).trim();
+    if (str === '') return null;
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const build = (y: number, m: number, d: number): string | null => {
+        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+        if (y < 1900 || y > 2200) return null;
+        return `${y}-${pad(m)}-${pad(d)}`;
+    };
+
+    const iso = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (iso) return build(+iso[1], +iso[2], +iso[3]);
+
+    const na = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (na) return build(+na[3], +na[1], +na[2]);
+
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    return null;
+}
+
 // ── Helper: compute the start of the current period window ───────────────────
 function getPeriodStart(period: string): string {
     const now = new Date();
@@ -220,7 +250,7 @@ serve(async (req: { method: string; }) => {
             // raw_data is now pre-normalized by the frontend CSV parser to:
             // { Date: "YYYY-MM-DD", Description: "...", Amount: <number> }
             // No MoneyOut/MoneyIn splitting needed — Amount is already a signed float.
-            const transactionsToClassify = userTxs.map((tx: { raw_data: any; id: any; transaction_account: any; }) => {
+            const preparedTxs = userTxs.map((tx: { raw_data: any; id: any; transaction_account: any; }) => {
                 const raw = tx.raw_data;
 
                 // Amount: already a signed number from the frontend parser.
@@ -242,12 +272,16 @@ serve(async (req: { method: string; }) => {
                     amount = moneyOut !== 0 ? -1 * Math.abs(moneyOut) : Math.abs(moneyIn);
                 }
 
-                const dateObj = new Date(raw.Date);
-                const date = !isNaN(dateObj.getTime()) ? dateObj.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+                // Dates arrive pre-normalized as "YYYY-MM-DD" from the frontend
+                // parser. Legacy bronze rows may still hold "MM/DD/YYYY". Read the
+                // calendar components directly instead of round-tripping through
+                // `new Date()` + `toISOString()`, which shifts the day by one
+                // depending on the local UTC offset and the input format.
+                const date = normalizeRawDate(raw.Date);
 
                 return {
                     id: tx.id,
-                    description: raw.Description,
+                    description: String(raw.Description ?? '').trim(),
                     amount,
                     date,
                     transaction_type: amount < 0 ? 'Expenditure' : 'Income',
@@ -255,7 +289,37 @@ serve(async (req: { method: string; }) => {
                 };
             });
 
+            // Backstop for unusable rows. The frontend parser now filters these
+            // out before insertion, but legacy bronze rows (uploaded before that
+            // fix) still carry blank descriptions, $0 amounts and fabricated
+            // dates from spreadsheet padding. Classifying them wastes tokens, and
+            // a null date would fail the NOT NULL constraint on the silver insert
+            // and take the whole batch down with it.
+            const isUnusable = (t: { date: string | null; description: string; amount: number }) =>
+                t.date === null || !isFinite(t.amount) || (t.description === '' && t.amount === 0);
+
+            const transactionsToClassify = preparedTxs.filter((t: any) => !isUnusable(t));
+            const unusableBronzeIds = preparedTxs.filter(isUnusable).map((t: any) => t.id);
+
+            if (unusableBronzeIds.length > 0) {
+                console.log(`[3.1] Skipping ${unusableBronzeIds.length} unusable bronze rows (blank/undated) for user ${userId}`);
+            }
+
             console.log(`[3] Prepared ${transactionsToClassify.length} transactions for user ${userId}`);
+
+            // Nothing worth classifying in this user's slice — retire the rows
+            // instead of paying for an empty Gemini call.
+            if (transactionsToClassify.length === 0) {
+                if (unusableBronzeIds.length > 0) {
+                    await supabase
+                        .schema("bronze")
+                        .from("transactions")
+                        .update({ status: 'processed' })
+                        .in("id", unusableBronzeIds);
+                }
+                console.log(`[3.2] No classifiable transactions for user ${userId}; skipping AI call.`);
+                continue;
+            }
 
             // ── C. Construct Prompt ──────────────────────────────────────────
             // Note: We no longer include verbose output-format instructions at the end —
