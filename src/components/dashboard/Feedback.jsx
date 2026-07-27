@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import {
     Plus, Bug, Sparkles, Palette, HelpCircle, ChevronUp, X,
-    Loader2, CheckCircle2, Clock, AlertCircle, Send, Trash2
+    Loader2, CheckCircle2, Clock, AlertCircle, Send, Trash2, Edit2
 } from 'lucide-react';
 import { theme } from '../../theme';
 
@@ -87,11 +87,13 @@ function VoteButton({ count, voted, onVote, disabled }) {
     );
 }
 
-function TicketCard({ ticket, currentUserId, onVote, onDelete }) {
+function TicketCard({ ticket, currentUserId, onVote, onDelete, onEdit }) {
     const voted   = ticket.user_has_voted;
     const isOwner = currentUserId && ticket.user_id === currentUserId;
+    const canEdit = isOwner && ticket.status === 'submitted';
     const cfg     = getTypeConfig(ticket.type);
     const [deleteHovered, setDeleteHovered] = useState(false);
+    const [editHovered, setEditHovered] = useState(false);
 
     return (
         <div
@@ -114,6 +116,21 @@ function TicketCard({ ticket, currentUserId, onVote, onDelete }) {
                     </span>
                 </div>
                 <div className="flex items-center gap-1.5">
+                    {canEdit && (
+                        <button
+                            onClick={e => { e.stopPropagation(); onEdit(ticket); }}
+                            onMouseEnter={() => setEditHovered(true)}
+                            onMouseLeave={() => setEditHovered(false)}
+                            style={{
+                                backgroundColor: editHovered ? 'rgba(99,102,241,0.12)' : 'transparent',
+                                color: editHovered ? '#818cf8' : '#4b5563',
+                            }}
+                            className="p-1.5 rounded-lg transition-all duration-150"
+                            title="Edit your ticket"
+                        >
+                            <Edit2 size={13} />
+                        </button>
+                    )}
                     {isOwner && (
                         <button
                             onClick={e => { e.stopPropagation(); onDelete(ticket.id); }}
@@ -152,6 +169,143 @@ function TicketCard({ ticket, currentUserId, onVote, onDelete }) {
                 {isOwner && (
                     <span style={{ color: '#4b5563' }} className="text-[10px] italic">You</span>
                 )}
+            </div>
+        </div>
+    );
+}
+
+// ── Edit Modal ────────────────────────────────────────────────────────────────
+
+function EditModal({ ticket, onClose, onSuccess }) {
+    const [type, setType]               = useState(ticket.type);
+    const [page, setPage]               = useState(ticket.page);
+    const [description, setDescription] = useState(ticket.description);
+    const [loading, setLoading]         = useState(false);
+    const [error, setError]             = useState('');
+
+    const handleSubmit = async () => {
+        if (!description.trim()) { setError('Please write a description.'); return; }
+        setLoading(true);
+        setError('');
+        const { error: err } = await supabase
+            .from('feedback_tickets')
+            .update({
+                type,
+                page,
+                description: description.trim(),
+            })
+            .eq('id', ticket.id);
+        setLoading(false);
+        if (err) { setError('Failed to save. Please try again.'); return; }
+        onSuccess();
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
+            <div
+                style={{ backgroundColor: '#1e1e1e', border: '1px solid #333', maxWidth: '520px' }}
+                className="w-full rounded-2xl shadow-2xl flex flex-col animate-fade-in-up"
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#2e2e2e' }}>
+                    <h2 style={{ color: '#f1f5f9' }} className="text-lg font-bold">Edit Feedback</h2>
+                    <button
+                        onClick={onClose}
+                        style={{ color: '#6b7280' }}
+                        className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                <div className="p-5 flex flex-col gap-5 overflow-y-auto">
+                    {/* Type selector */}
+                    <div>
+                        <label style={{ color: '#9ca3af' }} className="text-xs font-semibold uppercase tracking-wider mb-2.5 block">Type</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {TICKET_TYPES.map(({ value, label, icon: Icon, color, bg, border }) => {
+                                const sel = type === value;
+                                return (
+                                    <button
+                                        key={value}
+                                        onClick={() => setType(value)}
+                                        style={{
+                                            backgroundColor: sel ? bg : 'rgba(255,255,255,0.03)',
+                                            border: `1px solid ${sel ? border : 'rgba(255,255,255,0.08)'}`,
+                                            color: sel ? color : '#9ca3af',
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150"
+                                    >
+                                        <Icon size={15} />
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Page selector */}
+                    <div>
+                        <label style={{ color: '#9ca3af' }} className="text-xs font-semibold uppercase tracking-wider mb-2.5 block">Page</label>
+                        <select
+                            value={page}
+                            onChange={e => setPage(e.target.value)}
+                            style={{
+                                backgroundColor: '#2a2a2a',
+                                border: '1px solid #3a3a3a',
+                                color: '#e2e8f0',
+                            }}
+                            className="w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:border-emerald-600 transition-colors"
+                        >
+                            {PAGES.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                        <label style={{ color: '#9ca3af' }} className="text-xs font-semibold uppercase tracking-wider mb-2.5 block">Description</label>
+                        <textarea
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            placeholder="Describe what you found or what you'd like to see..."
+                            rows={4}
+                            style={{
+                                backgroundColor: '#2a2a2a',
+                                border: '1px solid #3a3a3a',
+                                color: '#e2e8f0',
+                                resize: 'none',
+                            }}
+                            className="w-full px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:border-emerald-600 transition-colors placeholder:text-[#4b5563]"
+                        />
+                    </div>
+
+                    {error && (
+                        <div style={{ backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm">
+                            <AlertCircle size={14} /> {error}
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-5 pt-0 flex justify-end gap-3">
+                    <button
+                        onClick={onClose}
+                        style={{ color: '#6b7280', border: '1px solid #333' }}
+                        className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/5 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={loading}
+                        style={{ backgroundColor: '#034638', color: '#fff' }}
+                        className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-60"
+                    >
+                        {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                        {loading ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -301,6 +455,7 @@ export default function Feedback() {
     const [tickets,       setTickets]       = useState([]);
     const [loading,       setLoading]       = useState(true);
     const [showModal,     setShowModal]     = useState(false);
+    const [editingTicket, setEditingTicket] = useState(null);
     const [tabHovered,    setTabHovered]    = useState(null);
 
     // Get session
@@ -388,6 +543,10 @@ export default function Feedback() {
         // Optimistic removal
         setTickets(prev => prev.filter(t => t.id !== ticketId));
         await supabase.from('feedback_tickets').delete().eq('id', ticketId);
+    };
+
+    const handleEdit = (ticket) => {
+        setEditingTicket(ticket);
     };
 
     const tabCounts = { submitted: 0, in_progress: 0, complete: 0 };
@@ -501,6 +660,7 @@ export default function Feedback() {
                                     currentUserId={currentUserId}
                                     onVote={handleVote}
                                     onDelete={handleDelete}
+                                    onEdit={handleEdit}
                                 />
                             ))}
                         </div>
@@ -513,6 +673,15 @@ export default function Feedback() {
                 <SubmitModal
                     currentUserId={currentUserId}
                     onClose={() => setShowModal(false)}
+                    onSuccess={fetchTickets}
+                />
+            )}
+
+            {/* ── Edit Modal ── */}
+            {editingTicket && (
+                <EditModal
+                    ticket={editingTicket}
+                    onClose={() => setEditingTicket(null)}
                     onSuccess={fetchTickets}
                 />
             )}
