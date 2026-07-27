@@ -675,6 +675,11 @@ export default function AIProcessing() {
             const userId = user.id;
             const fileIds = Array.from(selectedFileIds);
 
+            // Secondary categories are hand-applied and live only on silver, which
+            // step 1 is about to delete. Snapshot them by bronze_id so a reprocess
+            // doesn't silently wipe manual tagging work.
+            const tagSnapshot = [];
+
             // 1. Delete silver transactions for selected files
             for (const fileId of fileIds) {
                 if (abortSignal.cancelled) { setToast({ message: 'Processing cancelled.', type: 'error' }); return; }
@@ -691,6 +696,21 @@ export default function AIProcessing() {
                 const bronzeIds = bronzeTx.map(tx => tx.id);
 
                 if (bronzeIds.length > 0) {
+                    const { data: taggedRows, error: tagError } = await supabase
+                        .from('silver_transactions')
+                        .select('bronze_id, secondary_categories')
+                        .eq('user_id', userId)
+                        .in('bronze_id', bronzeIds);
+
+                    if (tagError) throw new Error(`Failed to read secondary categories for file ${fileId}: ${tagError.message}`);
+
+                    (taggedRows || []).forEach(row => {
+                        const tags = Array.isArray(row.secondary_categories) ? row.secondary_categories : [];
+                        if (row.bronze_id && tags.length > 0) {
+                            tagSnapshot.push({ bronze_id: row.bronze_id, secondary_categories: tags });
+                        }
+                    });
+
                     const { error: silverError } = await supabase
                         .from('silver_transactions')
                         .delete()
@@ -734,6 +754,24 @@ export default function AIProcessing() {
                     hasMore = false;
                 }
                 loops++;
+            }
+
+            // 4. Re-apply the snapshotted secondary categories to the rebuilt rows.
+            // The AI never writes this column, so restoring is safe and idempotent.
+            let failedRestores = 0;
+            for (const entry of tagSnapshot) {
+                const { error: restoreError } = await supabase
+                    .from('silver_transactions')
+                    .update({ secondary_categories: entry.secondary_categories })
+                    .eq('user_id', userId)
+                    .eq('bronze_id', entry.bronze_id);
+                if (restoreError) {
+                    failedRestores++;
+                    console.error('Failed to restore secondary categories for', entry.bronze_id, restoreError);
+                }
+            }
+            if (failedRestores > 0) {
+                console.warn(`${failedRestores} of ${tagSnapshot.length} secondary category assignments could not be restored.`);
             }
 
             // Reset the baseline to the current live data so isDirty becomes false

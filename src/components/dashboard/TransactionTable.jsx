@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Edit2, Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Calendar } from 'lucide-react';
+import SecondaryCategoryPicker, { SecondaryCategoryChips } from './SecondaryCategoryPicker';
+import { normalizeSecondaryCategories } from '../../lib/secondaryCategories';
 
 export default function TransactionTable({
     transactions,
@@ -13,7 +15,12 @@ export default function TransactionTable({
     onToggleDateFormat,
     limit,
     dateFormat = 'standard',
-    selectedCategoryInfo = null
+    selectedCategoryInfo = null,
+    secondaryCategories = [],
+    secondaryCategoryColor = () => '#64748b',
+    onCreateSecondaryCategory,
+    onRenameSecondaryCategory,
+    onDeleteSecondaryCategory
 }) {
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
     const [columnOrder, setColumnOrder] = useState([
@@ -21,6 +28,7 @@ export default function TransactionTable({
         'description',
         'transaction_account',
         'category',
+        'secondary_categories',
         'amount'
     ]);
     const [draggedColumn, setDraggedColumn] = useState(null);
@@ -86,6 +94,15 @@ export default function TransactionTable({
                 } else if (sortConfig.key === 'date') {
                     aValue = new Date(a.effective_date).getTime();
                     bValue = new Date(b.effective_date).getTime();
+                } else if (sortConfig.key === 'secondary_categories') {
+                    // Untagged rows sort last regardless of direction
+                    const aTags = normalizeSecondaryCategories(aValue);
+                    const bTags = normalizeSecondaryCategories(bValue);
+                    if (aTags.length === 0 && bTags.length === 0) return 0;
+                    if (aTags.length === 0) return 1;
+                    if (bTags.length === 0) return -1;
+                    aValue = [...aTags].sort().join(', ').toLowerCase();
+                    bValue = [...bTags].sort().join(', ').toLowerCase();
                 } else {
                     // Strings (description, type, category)
                     aValue = (aValue || '').toString().toLowerCase();
@@ -261,6 +278,23 @@ export default function TransactionTable({
                 </div>
             </th>
         ),
+        secondary_categories: (
+            <th
+                key="secondary_categories"
+                draggable
+                onDragStart={(e) => handleDragStart(e, 'secondary_categories')}
+                onDragOver={(e) => handleDragOver(e, 'secondary_categories')}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, 'secondary_categories')}
+                onDragEnd={handleDragEnd}
+                className={`px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-all relative ${draggedColumn === 'secondary_categories' ? 'opacity-40 bg-slate-100' : ''} ${dropTarget === 'secondary_categories' ? 'border-l-2 border-emerald-500' : ''}`}
+                onClick={() => requestSort('secondary_categories')}
+            >
+                <div className="flex items-center gap-1">
+                    Secondary <SortIndicator columnKey="secondary_categories" />
+                </div>
+            </th>
+        ),
         amount: (
             <th
                 key="amount"
@@ -423,6 +457,26 @@ export default function TransactionTable({
                         )}
                     </td>
                 );
+            case 'secondary_categories': {
+                const current = editDrafts[tx.id]?.secondary_categories ?? tx.secondary_categories;
+                return (
+                    <td key="secondary_categories" className="px-6 py-4 min-w-[180px]">
+                        {isEditingMode ? (
+                            <SecondaryCategoryPicker
+                                value={current}
+                                options={secondaryCategories}
+                                colorFor={secondaryCategoryColor}
+                                onChange={(next) => onDraftChange(tx.id, 'secondary_categories', next)}
+                                onCreate={onCreateSecondaryCategory}
+                                onRename={onRenameSecondaryCategory}
+                                onDelete={onDeleteSecondaryCategory}
+                            />
+                        ) : (
+                            <SecondaryCategoryChips names={current} colorFor={secondaryCategoryColor} />
+                        )}
+                    </td>
+                );
+            }
             case 'amount':
                 return (
                     <td key="amount" className={`pl-6 pr-16 py-4 text-sm font-bold text-right ${parseFloat(tx.amount) > 0 ? 'text-emerald-600' : 'text-slate-900'

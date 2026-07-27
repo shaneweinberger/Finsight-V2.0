@@ -21,12 +21,23 @@ import {
     CircleSlash,
     Check,
     Tag,
+    Tags,
     Edit2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
-import { CATEGORY_COLORS } from '../../lib/categoryColors';
+import { CATEGORY_COLORS, SECONDARY_CATEGORY_COLORS } from '../../lib/categoryColors';
+import { normalizeSecondaryCategories } from '../../lib/secondaryCategories';
 import { theme } from '../../theme';
+
+// Human-readable labels for the active-filter chips
+const FILTER_FIELD_LABELS = {
+    transaction_account: 'Account',
+    secondary_categories: 'Secondary'
+};
+
+// Sentinel used in the secondary-category filter for transactions with no tags
+const UNTAGGED = 'Untagged';
 
 export default function Analysis() {
     const location = useLocation();
@@ -89,6 +100,7 @@ export default function Analysis() {
 
     const [transactions, setTransactions] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [secondaryCategories, setSecondaryCategories] = useState([]);
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isEditingMode, setIsEditingMode] = useState(false);
@@ -172,7 +184,7 @@ export default function Analysis() {
 
     const fetchData = async () => {
         setLoading(true);
-        await Promise.all([fetchTransactions(), fetchCategories(), fetchAccounts()]);
+        await Promise.all([fetchTransactions(), fetchCategories(), fetchSecondaryCategories(), fetchAccounts()]);
         setLoading(false);
     };
 
@@ -276,8 +288,125 @@ export default function Analysis() {
         }
     };
 
+    // ── Secondary categories ────────────────────────────────────────────────
+    // Manual tags that cut across primary categories (e.g. "Napa Weekend").
+    // Stored on silver_transactions.secondary_categories as an array of names.
+    const fetchSecondaryCategories = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabase
+                .from('user_secondary_categories')
+                .select('id, name, color')
+                .eq('user_id', user.id)
+                .order('name');
+
+            if (error) throw error;
+            setSecondaryCategories(data || []);
+        } catch (err) {
+            console.error('Error fetching secondary categories:', err);
+        }
+    };
+
+    const handleCreateSecondaryCategory = async (name) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not signed in.');
+
+        const color = SECONDARY_CATEGORY_COLORS[secondaryCategories.length % SECONDARY_CATEGORY_COLORS.length];
+        const { data, error } = await supabase
+            .from('user_secondary_categories')
+            .insert([{ name, color, user_id: user.id }])
+            .select('id, name, color')
+            .single();
+
+        if (error) {
+            throw new Error(error.code === '23505' ? 'That secondary category already exists.' : error.message);
+        }
+
+        setSecondaryCategories(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        return data;
+    };
+
+    const handleRenameSecondaryCategory = async (option, newName) => {
+        const { error } = await supabase
+            .from('user_secondary_categories')
+            .update({ name: newName })
+            .eq('id', option.id);
+
+        if (error) {
+            throw new Error(error.code === '23505' ? 'That secondary category already exists.' : error.message);
+        }
+
+        // Assignments are stored by name, so every tagged transaction has to be
+        // rewritten — including rows outside the currently loaded date range.
+        const { error: rpcError } = await supabase.rpc('rename_secondary_category', {
+            p_old_name: option.name,
+            p_new_name: newName
+        });
+        if (rpcError) throw new Error(rpcError.message);
+
+        setSecondaryCategories(prev =>
+            prev.map(c => (c.id === option.id ? { ...c, name: newName } : c))
+                .sort((a, b) => a.name.localeCompare(b.name))
+        );
+        setTransactions(prev => prev.map(tx => {
+            const tags = normalizeSecondaryCategories(tx.secondary_categories);
+            if (!tags.includes(option.name)) return tx;
+            return { ...tx, secondary_categories: tags.map(t => (t === option.name ? newName : t)) };
+        }));
+        setEditDrafts(prev => {
+            const next = {};
+            for (const [id, draft] of Object.entries(prev)) {
+                if (!Array.isArray(draft.secondary_categories)) { next[id] = draft; continue; }
+                next[id] = { ...draft, secondary_categories: draft.secondary_categories.map(t => (t === option.name ? newName : t)) };
+            }
+            return next;
+        });
+    };
+
+    const handleDeleteSecondaryCategory = async (option) => {
+        const { error: rpcError } = await supabase.rpc('remove_secondary_category', { p_name: option.name });
+        if (rpcError) throw new Error(rpcError.message);
+
+        const { error } = await supabase
+            .from('user_secondary_categories')
+            .delete()
+            .eq('id', option.id);
+        if (error) throw new Error(error.message);
+
+        setSecondaryCategories(prev => prev.filter(c => c.id !== option.id));
+        setTransactions(prev => prev.map(tx => {
+            const tags = normalizeSecondaryCategories(tx.secondary_categories);
+            if (!tags.includes(option.name)) return tx;
+            return { ...tx, secondary_categories: tags.filter(t => t !== option.name) };
+        }));
+        setEditDrafts(prev => {
+            const next = {};
+            for (const [id, draft] of Object.entries(prev)) {
+                if (!Array.isArray(draft.secondary_categories)) { next[id] = draft; continue; }
+                next[id] = { ...draft, secondary_categories: draft.secondary_categories.filter(t => t !== option.name) };
+            }
+            return next;
+        });
+        // Drop the deleted tag from any active filter so the table doesn't go blank
+        setAdvancedFilters(prev => prev.map(f => (
+            f.field === 'secondary_categories' && Array.isArray(f.value)
+                ? { ...f, value: f.value.filter(v => v !== option.name) }
+                : f
+        )));
+    };
+
     // Derived category names for backward compat
     const categoryNames = categories.map(c => c.name);
+    const secondaryCategoryNames = secondaryCategories.map(c => c.name);
+
+    const getSecondaryColor = (name) => {
+        const match = secondaryCategories.find(c => c.name === name);
+        if (match?.color) return match.color;
+        const idx = secondaryCategoryNames.indexOf(name);
+        return SECONDARY_CATEGORY_COLORS[(idx === -1 ? 0 : idx) % SECONDARY_CATEGORY_COLORS.length];
+    };
 
     // Color helper: prefers DB color, case-insensitive name match, then palette fallback
     const getColor = (catName, fallbackIndex = 0) => {
@@ -297,6 +426,10 @@ export default function Analysis() {
             value = [];
         }
         if (field === 'category') {
+            operator = 'is';
+            value = [];
+        }
+        if (field === 'secondary_categories') {
             operator = 'is';
             value = [];
         }
@@ -384,6 +517,20 @@ export default function Analysis() {
 
                     const cat = (txValue || 'Uncategorized').toLowerCase();
                     const isMatch = valArray.map(v => v.toLowerCase()).includes(cat);
+                    if (operator === 'is' && !isMatch) return false;
+                    if (operator === 'isNot' && isMatch) return false;
+                }
+
+                if (field === 'secondary_categories') {
+                    const valArray = Array.isArray(value) ? value : [value];
+                    if (valArray.length === 0) continue;
+
+                    const tags = normalizeSecondaryCategories(txValue);
+                    // "is" matches a transaction carrying ANY of the selected tags.
+                    // Untagged is its own selectable value.
+                    const isMatch = valArray.some(v => (
+                        v === UNTAGGED ? tags.length === 0 : tags.some(t => t.toLowerCase() === v.toLowerCase())
+                    ));
                     if (operator === 'is' && !isMatch) return false;
                     if (operator === 'isNot' && isMatch) return false;
                 }
@@ -896,6 +1043,7 @@ export default function Analysis() {
                                         { field: 'description', label: 'Description', icon: Search },
                                         { field: 'transaction_account', label: 'Account', icon: Filter },
                                         { field: 'category', label: 'Category', icon: Tag },
+                                        { field: 'secondary_categories', label: 'Secondary Category', icon: Tags },
                                         { field: 'amount', label: 'Amount', icon: ArrowUpDown }
                                     ].map(opt => (
                                         <button
@@ -969,7 +1117,7 @@ export default function Analysis() {
                                 className="flex items-center gap-0 bg-white border border-slate-200 rounded-lg shadow-sm animate-in slide-in-from-left duration-200"
                             >
                                 <div className="pl-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-tighter">
-                                    {filter.field === 'transaction_account' ? 'Account' : filter.field}:
+                                    {FILTER_FIELD_LABELS[filter.field] ?? filter.field}:
                                 </div>
                                 <div className="flex items-center">
                                     {/* Operator Select */}
@@ -1001,7 +1149,7 @@ export default function Analysis() {
 
                                     {/* Value Input */}
                                     <div className="border-l border-slate-100 flex items-center relative">
-                                        {filter.field === 'transaction_account' || filter.field === 'category' ? (
+                                        {filter.field === 'transaction_account' || filter.field === 'category' || filter.field === 'secondary_categories' ? (
                                             <>
                                                 <button
                                                     onClick={(e) => {
@@ -1025,7 +1173,12 @@ export default function Analysis() {
                                                         className="absolute top-full left-0 mt-1 w-48 bg-surface-card rounded-xl border border-divider shadow-xl z-[60] py-2 animate-in zoom-in-95 duration-200 max-h-64 overflow-y-auto"
                                                         onClick={(e) => e.stopPropagation()}
                                                     >
-                                                        {(filter.field === 'transaction_account' ? accounts : ['Uncategorized', ...categoryNames]).map(opt => {
+                                                        {(filter.field === 'transaction_account'
+                                                            ? accounts
+                                                            : filter.field === 'secondary_categories'
+                                                                ? [UNTAGGED, ...secondaryCategoryNames]
+                                                                : ['Uncategorized', ...categoryNames]
+                                                        ).map(opt => {
                                                             const isSelected = filter.value.some(v => v.toLowerCase() === opt.toLowerCase());
                                                             return (
                                                                 <label
@@ -1114,6 +1267,11 @@ export default function Analysis() {
                                 dateFormat={dateFormat}
                                 onToggleDateFormat={() => setDateFormat(prev => prev === 'standard' ? 'friendly' : 'standard')}
                                 selectedCategoryInfo={selectedCategoryInfo}
+                                secondaryCategories={secondaryCategories}
+                                secondaryCategoryColor={getSecondaryColor}
+                                onCreateSecondaryCategory={handleCreateSecondaryCategory}
+                                onRenameSecondaryCategory={handleRenameSecondaryCategory}
+                                onDeleteSecondaryCategory={handleDeleteSecondaryCategory}
                             />
                         </div>
 

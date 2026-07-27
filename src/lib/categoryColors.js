@@ -9,6 +9,22 @@
  *
  * To change the whole app's color language, edit this file only.
  */
+export const SECONDARY_CATEGORY_COLORS = [
+    // Secondary categories are a *different dimension* than primary categories
+    // (a trip, an event, a project), so they get their own saturated palette to
+    // stay visually distinct from the beige/sage primaries below.
+    "#0F766E", // Teal
+    "#B45309", // Amber
+    "#4338CA", // Indigo
+    "#BE123C", // Rose
+    "#15803D", // Green
+    "#7C3AED", // Violet
+    "#0369A1", // Sky
+    "#C2410C", // Orange
+    "#A21CAF", // Fuchsia
+    "#475569"  // Slate
+];
+
 export const CATEGORY_COLORS = [
     // ── THE BEIGES (Warm Sands & Limestones) ──
     "#FDF9F5", // 1. Main Background / Housing (Linen)
