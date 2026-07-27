@@ -65,6 +65,9 @@ export default function Analysis() {
         else if (location.state.startDate) setFilterType('range');
         if (location.state.selectedMonth) setSelectedMonth(location.state.selectedMonth);
         if (location.state.selectedWeek) setSelectedWeek(location.state.selectedWeek);
+        // A deep-linked category has to land on the category breakdown, even if the
+        // panel was left in secondary mode last visit.
+        if (location.state.category) setBreakdownMode('category');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -109,6 +112,11 @@ export default function Analysis() {
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
+
+    // Breakdown panel: 'category' (primary, with pie) or 'secondary' (tags)
+    const [breakdownMode, setBreakdownMode] = useSessionState('analysis.breakdownMode', 'category');
+    const [selectedSecondary, setSelectedSecondary] = useState(null);
+    const isSecondaryMode = breakdownMode === 'secondary';
 
     // Clear the location state so that manual refreshes don't re-trigger it
     useEffect(() => {
@@ -180,7 +188,7 @@ export default function Analysis() {
     // Reset to page 1 whenever column filters or category selection change
     useEffect(() => {
         setCurrentPage(1);
-    }, [advancedFilters, selectedCategory]);
+    }, [advancedFilters, selectedCategory, selectedSecondary]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -470,6 +478,41 @@ export default function Analysis() {
         }
     };
 
+    // Clicking a row in the secondary breakdown drives the same filter pill the
+    // "Secondary Category" filter menu produces, so the two stay in sync.
+    const handleSecondaryClick = (name) => {
+        const isDeselect = selectedSecondary === name;
+        setSelectedSecondary(isDeselect ? null : name);
+
+        const existingFilter = advancedFilters.find(f => f.field === 'secondary_categories');
+
+        if (isDeselect) {
+            if (existingFilter) {
+                removeFilter(existingFilter.id);
+            }
+        } else if (existingFilter) {
+            updateFilter(existingFilter.id, { value: [name], operator: 'is' });
+        } else {
+            const id = Math.random().toString(36).substr(2, 9);
+            setAdvancedFilters(prev => [...prev, { id, field: 'secondary_categories', operator: 'is', value: [name] }]);
+        }
+    };
+
+    // Switching modes drops the outgoing view's row selection — otherwise its
+    // filter pill would keep narrowing the table with nothing highlighted.
+    const handleBreakdownModeChange = (mode) => {
+        if (mode === breakdownMode) return;
+
+        const staleSelection = mode === 'secondary' ? selectedCategory : selectedSecondary;
+        const staleField = mode === 'secondary' ? 'category' : 'secondary_categories';
+        if (staleSelection) {
+            const staleFilter = advancedFilters.find(f => f.field === staleField);
+            if (staleFilter) removeFilter(staleFilter.id);
+        }
+
+        setBreakdownMode(mode);
+    };
+
     // Sync selectedCategory when filters change manually
     useEffect(() => {
         const catFilter = advancedFilters.find(f => f.field === 'category');
@@ -477,6 +520,16 @@ export default function Analysis() {
             setSelectedCategory(null);
         } else {
             setSelectedCategory(catFilter.value[0]);
+        }
+    }, [advancedFilters]);
+
+    // Same for the secondary selection
+    useEffect(() => {
+        const secFilter = advancedFilters.find(f => f.field === 'secondary_categories');
+        if (!secFilter || !Array.isArray(secFilter.value) || secFilter.value.length !== 1 || secFilter.operator !== 'is') {
+            setSelectedSecondary(null);
+        } else {
+            setSelectedSecondary(secFilter.value[0]);
         }
     }, [advancedFilters]);
 
@@ -507,8 +560,10 @@ export default function Analysis() {
                 }
 
                 if (field === 'category') {
-                    // Bypass the filtering for base stats if this is exactly the selectedCategory pill
-                    if (selectedCategory && operator === 'is' && value.length === 1 && value[0].toLowerCase() === selectedCategory.toLowerCase()) {
+                    // Bypass the filtering for base stats if this is exactly the selectedCategory pill.
+                    // Only while the category breakdown is the active view — otherwise the pill is
+                    // just a normal filter and the secondary breakdown should respect it.
+                    if (!isSecondaryMode && selectedCategory && operator === 'is' && value.length === 1 && value[0].toLowerCase() === selectedCategory.toLowerCase()) {
                         continue;
                     }
 
@@ -522,6 +577,11 @@ export default function Analysis() {
                 }
 
                 if (field === 'secondary_categories') {
+                    // Same idea in reverse: only the active secondary breakdown gets the bypass
+                    if (isSecondaryMode && selectedSecondary && operator === 'is' && Array.isArray(value) && value.length === 1 && value[0].toLowerCase() === selectedSecondary.toLowerCase()) {
+                        continue;
+                    }
+
                     const valArray = Array.isArray(value) ? value : [value];
                     if (valArray.length === 0) continue;
 
@@ -546,9 +606,10 @@ export default function Analysis() {
             }
             return true;
         });
-    }, [transactions, advancedFilters]);
+    }, [transactions, advancedFilters, selectedCategory, selectedSecondary, isSecondaryMode]);
 
-    // Final filtered transactions for the table: apply selectedCategory on top of base filters.
+    // Final filtered transactions for the table: apply the breakdown row selection
+    // (primary category or secondary tag) on top of base filters.
     const filteredTransactions = React.useMemo(() => {
         let result = baseFilteredTransactions;
 
@@ -559,14 +620,23 @@ export default function Analysis() {
             });
         }
 
-        // When a category is selected, pre-sort by absolute amount descending so that
+        if (selectedSecondary) {
+            result = result.filter(tx => {
+                const tags = normalizeSecondaryCategories(tx.secondary_categories);
+                return selectedSecondary === UNTAGGED
+                    ? tags.length === 0
+                    : tags.some(t => t.toLowerCase() === selectedSecondary.toLowerCase());
+            });
+        }
+
+        // When a row is selected, pre-sort by absolute amount descending so that
         // the highest-spending transactions are always on page 1 before paginating.
-        if (selectedCategory) {
+        if (selectedCategory || selectedSecondary) {
             result = [...result].sort((a, b) => Math.abs(parseFloat(b.amount) || 0) - Math.abs(parseFloat(a.amount) || 0));
         }
 
         return result;
-    }, [baseFilteredTransactions, selectedCategory]);
+    }, [baseFilteredTransactions, selectedCategory, selectedSecondary]);
 
     const categoryStats = React.useMemo(() => {
         const stats = {};
@@ -597,6 +667,47 @@ export default function Analysis() {
         return { data, totalSpend };
     }, [baseFilteredTransactions]);
 
+    // Secondary categories are multi-valued, so a transaction carrying two tags
+    // contributes its full spend to both rows. Percentages are taken against the
+    // period's total spend, which means the column can add up to over 100%.
+    // Everything untagged collapses into a single trailing row.
+    const secondaryStats = React.useMemo(() => {
+        const stats = {};
+        let totalSpend = 0;
+
+        baseFilteredTransactions.forEach(tx => {
+            const cat = tx.category || 'Uncategorized';
+            if (cat.toLowerCase() === 'income') return;
+
+            const spendAmount = -parseFloat(tx.amount || 0);
+            totalSpend += spendAmount;
+
+            const tags = normalizeSecondaryCategories(tx.secondary_categories);
+            const keys = tags.length > 0 ? [...new Set(tags)] : [UNTAGGED];
+
+            keys.forEach(key => {
+                if (!stats[key]) {
+                    stats[key] = { category: key, spend: 0, count: 0 };
+                }
+                stats[key].spend += spendAmount;
+                stats[key].count += 1;
+            });
+        });
+
+        const data = Object.values(stats)
+            .map(s => ({
+                ...s,
+                percent: totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0
+            }))
+            .sort((a, b) => {
+                if (a.category === UNTAGGED) return 1;
+                if (b.category === UNTAGGED) return -1;
+                return b.spend - a.spend;
+            });
+
+        return { data, totalSpend };
+    }, [baseFilteredTransactions]);
+
     const selectedCategoryInfo = React.useMemo(() => {
         if (!selectedCategory || !categoryStats.data.length) return null;
         const statsIndex = categoryStats.data.findIndex(s => s.category.toLowerCase() === selectedCategory.toLowerCase());
@@ -606,6 +717,51 @@ export default function Analysis() {
             color: getColor(selectedCategory, statsIndex)
         };
     }, [selectedCategory, categoryStats.data]);
+
+    const selectedSecondaryInfo = React.useMemo(() => {
+        if (!selectedSecondary || !secondaryStats.data.length) return null;
+        const row = secondaryStats.data.find(s => s.category.toLowerCase() === selectedSecondary.toLowerCase());
+        if (!row) return null;
+        return {
+            ...row,
+            color: row.category === UNTAGGED ? '#94a3b8' : getSecondaryColor(row.category)
+        };
+    }, [selectedSecondary, secondaryStats.data, secondaryCategories]);
+
+    // In secondary mode the pie shows the primary-category mix of whatever the
+    // table is currently showing — for a selected tag that's "what did Napa
+    // Weekend actually get spent on", and with no tag selected it's the same
+    // overall mix the category view charts.
+    const secondaryPieData = React.useMemo(() => {
+        if (!isSecondaryMode || !selectedSecondary) return [];
+
+        const stats = {};
+        let totalSpend = 0;
+
+        filteredTransactions.forEach(tx => {
+            const cat = tx.category || 'Uncategorized';
+            if (cat.toLowerCase() === 'income') return;
+
+            const spendAmount = -parseFloat(tx.amount || 0);
+            if (!stats[cat]) {
+                stats[cat] = { category: cat, spend: 0, count: 0 };
+            }
+            stats[cat].spend += spendAmount;
+            stats[cat].count += 1;
+            totalSpend += spendAmount;
+        });
+
+        return Object.values(stats)
+            .map(s => ({ ...s, percent: totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0 }))
+            .sort((a, b) => b.spend - a.spend);
+    }, [isSecondaryMode, selectedSecondary, filteredTransactions]);
+
+    // What the breakdown panel is currently driving
+    const breakdownStats = isSecondaryMode ? secondaryStats : categoryStats;
+    const pieData = isSecondaryMode && selectedSecondary ? secondaryPieData : categoryStats.data;
+    const pieTotal = isSecondaryMode && selectedSecondary
+        ? (selectedSecondaryInfo?.spend ?? 0)
+        : categoryStats.totalSpend;
 
 
 
@@ -823,6 +979,47 @@ export default function Analysis() {
                                 </button>
                             </div>
                         );
+                    })() : filterType === 'week' ? (() => {
+                        const weekOptions = getWeekOptions(); // newest first
+                        const currentIndex = weekOptions.findIndex(w => w.start === selectedWeek);
+                        const canGoPrev = currentIndex > -1 && currentIndex < weekOptions.length - 1;
+                        const canGoNext = currentIndex > 0;
+                        return (
+                            <div className="relative flex items-center">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => canGoPrev && setSelectedWeek(weekOptions[currentIndex + 1].start)}
+                                        disabled={!canGoPrev}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                        title="Previous week"
+                                    >
+                                        <ChevronLeft size={18} strokeWidth={2.5} />
+                                    </button>
+                                    <div className="flex items-center gap-1 bg-white pl-4 pr-3 py-2 rounded-2xl border border-slate-200 shadow-sm min-h-[44px]">
+                                        <select
+                                            value={selectedWeek}
+                                            onChange={(e) => setSelectedWeek(e.target.value)}
+                                            className="text-sm font-semibold text-slate-700 min-w-[180px] text-center outline-none bg-transparent cursor-pointer appearance-none"
+                                            style={{ textAlignLast: 'center' }}
+                                        >
+                                            {weekOptions.map(w => (
+                                                <option key={w.start} value={w.start}>{w.label}</option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown size={14} className="text-slate-400 pointer-events-none" />
+                                    </div>
+                                    <button
+                                        onClick={() => canGoNext && setSelectedWeek(weekOptions[currentIndex - 1].start)}
+                                        disabled={!canGoNext}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                        title="Next week"
+                                    >
+                                        <ChevronRight size={18} strokeWidth={2.5} />
+                                    </button>
+                                </div>
+                                <span className="absolute top-full left-0 right-0 text-center text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1 leading-none pointer-events-none">(Monday to Sunday)</span>
+                            </div>
+                        );
                     })() : (
                         <div className="flex items-center gap-1 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm min-h-[44px]">
                             {filterType === 'range' && (
@@ -848,24 +1045,6 @@ export default function Analysis() {
                                 </>
                             )}
 
-                            {filterType === 'week' && (
-                                <div className="flex items-center gap-3 px-3 min-w-[300px]">
-                                    <Calendar size={16} className="text-slate-400" />
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mb-0.5 leading-none">(Monday to Sunday)</span>
-                                        <select
-                                            value={selectedWeek}
-                                            onChange={(e) => setSelectedWeek(e.target.value)}
-                                            className="text-sm font-medium text-slate-700 outline-none bg-transparent w-full cursor-pointer"
-                                        >
-                                            {getWeekOptions().map(w => (
-                                                <option key={w.start} value={w.start}>{w.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            )}
-
                             {filterType === 'all' && (
                                 <div className="flex items-center gap-2 px-4 py-1">
                                     <Filter size={16} className="text-accent" />
@@ -878,40 +1057,72 @@ export default function Analysis() {
             </header>
 
             {/* Top Charts Section */}
-            {!loading && categoryStats.data.length > 0 && (
+            {!loading && breakdownStats.data.length > 0 && (
                 <div className="mb-6">
                     {/* Category Breakdown */}
                     <div className="relative z-20 pl-6">
-                        <h3 className="text-base font-bold text-slate-900 mb-0.5">Category Breakdown</h3>
-                        <p className="text-xs text-slate-500 mb-4 font-medium italic">Click on a category row or chart slice to filter your transactions</p>
+                        <div className="flex items-center gap-3 mb-0.5">
+                            <h3 className="text-base font-bold text-slate-900">
+                                {isSecondaryMode ? 'Secondary Category Breakdown' : 'Category Breakdown'}
+                            </h3>
+                            <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                {[
+                                    { id: 'category', label: 'Category' },
+                                    { id: 'secondary', label: 'Secondary' }
+                                ].map(mode => (
+                                    <button
+                                        key={mode.id}
+                                        onClick={() => handleBreakdownModeChange(mode.id)}
+                                        className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${breakdownMode === mode.id
+                                            ? 'bg-white text-accent shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                    >
+                                        {mode.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-4 font-medium italic">
+                            {isSecondaryMode
+                                ? 'Click on a secondary category row to filter your transactions'
+                                : 'Click on a category row or chart slice to filter your transactions'}
+                        </p>
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                             <div className="md:col-span-8">
                                 <div className="overflow-x-visible">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="border-b border-slate-200">
-                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
+                                                <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                                    {isSecondaryMode ? 'Secondary Category' : 'Category'}
+                                                </th>
                                                 <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Spend</th>
                                                 <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Txns</th>
                                                 <th className="pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">% of Total</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
-                                            {categoryStats.data.map((row, idx) => {
-                                                const isSelected = selectedCategory === row.category;
-                                                const isDimmed = selectedCategory && !isSelected;
+                                            {breakdownStats.data.map((row, idx) => {
+                                                const activeSelection = isSecondaryMode ? selectedSecondary : selectedCategory;
+                                                const isSelected = activeSelection === row.category;
+                                                const isDimmed = activeSelection && !isSelected;
+                                                const isUntagged = isSecondaryMode && row.category === UNTAGGED;
+                                                const rowColor = isSecondaryMode
+                                                    ? (isUntagged ? '#94a3b8' : getSecondaryColor(row.category))
+                                                    : getColor(row.category, idx);
 
                                                 return (
                                                     <tr
                                                         key={row.category}
-                                                        onClick={() => handleCategoryClick(row.category)}
+                                                        onClick={() => (isSecondaryMode ? handleSecondaryClick(row.category) : handleCategoryClick(row.category))}
                                                         className={`transition-all cursor-pointer ${isSelected ? 'bg-accent-light/30' : isDimmed ? 'opacity-30 grayscale-[0.5]' : 'hover:bg-slate-50/50'
                                                             }`}
                                                     >
                                                         <td className="px-1 py-3 text-sm font-semibold text-slate-700">
                                                             <div className="flex items-center gap-2">
-                                                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: isDimmed ? '#cbd5e1' : getColor(row.category, idx) }} />
-                                                                <span className="truncate">{row.category}</span>
+                                                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: isDimmed ? '#cbd5e1' : rowColor }} />
+                                                                <span className={`truncate ${isUntagged ? 'italic text-slate-500' : ''}`}>{row.category}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-1 py-3 text-sm font-bold text-slate-700 text-right">${row.spend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -920,7 +1131,7 @@ export default function Analysis() {
                                                             <div className="flex items-center justify-end gap-3">
                                                                 <span className="w-12 text-right text-xs shrink-0">{row.percent.toFixed(1)}%</span>
                                                                 <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
-                                                                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${row.percent}%`, backgroundColor: isDimmed ? '#cbd5e1' : getColor(row.category, idx) }} />
+                                                                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(0, Math.min(row.percent, 100))}%`, backgroundColor: isDimmed ? '#cbd5e1' : rowColor }} />
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -929,13 +1140,20 @@ export default function Analysis() {
                                             })}
                                         </tbody>
                                     </table>
+                                    {isSecondaryMode && (
+                                        <p className="text-[11px] text-slate-400 mt-3 italic">
+                                            Transactions with more than one secondary category count toward each of them, so percentages can add up to over 100%.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="md:col-span-4 flex flex-col items-center justify-center p-4">
                                 <div className="text-center mb-4">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Total Expenditures</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
+                                        {isSecondaryMode && selectedSecondary ? `${selectedSecondary} Spend` : 'Total Expenditures'}
+                                    </span>
                                     <span className="text-2xl font-black text-slate-900 tracking-tight">
-                                        ${categoryStats.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        ${pieTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
                                 <div className="w-full h-[230px] scale-110">
@@ -943,7 +1161,7 @@ export default function Analysis() {
                                         <PieChart>
                                             <Pie
                                                 isAnimationActive={false}
-                                                data={categoryStats.data}
+                                                data={pieData}
                                                 cx="50%"
                                                 cy="50%"
                                                 innerRadius={30}
@@ -952,12 +1170,12 @@ export default function Analysis() {
                                                 dataKey="spend"
                                                 nameKey="category"
                                                 stroke="none"
-                                                onClick={(data) => handleCategoryClick(data.category)}
-                                                style={{ cursor: 'pointer' }}
+                                                onClick={isSecondaryMode ? undefined : (data) => handleCategoryClick(data.category)}
+                                                style={{ cursor: isSecondaryMode ? 'default' : 'pointer' }}
                                                 labelLine={false}
                                                 label={(props) => {
                                                     const { cx, cy, midAngle, outerRadius, value, payload, percent } = props;
-                                                    if (!selectedCategory || selectedCategory !== payload.category) return null;
+                                                    if (isSecondaryMode || !selectedCategory || selectedCategory !== payload.category) return null;
 
                                                     const RADIAN = Math.PI / 180;
                                                     const radius = outerRadius + 15;
@@ -979,9 +1197,9 @@ export default function Analysis() {
                                                     );
                                                 }}
                                             >
-                                                {categoryStats.data.map((entry, index) => {
+                                                {pieData.map((entry, index) => {
                                                     const isSelected = selectedCategory === entry.category;
-                                                    const isDimmed = selectedCategory && !isSelected;
+                                                    const isDimmed = !isSecondaryMode && selectedCategory && !isSelected;
                                                     return (
                                                         <Cell
                                                             key={`cell-${index}`}
@@ -998,6 +1216,13 @@ export default function Analysis() {
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
+                                {isSecondaryMode && (
+                                    <p className="text-[11px] text-slate-400 text-center mt-2 italic px-2">
+                                        {selectedSecondary
+                                            ? `Category mix within ${selectedSecondary}`
+                                            : 'Category mix — select a secondary category to see its breakdown'}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1266,7 +1491,7 @@ export default function Analysis() {
                                 onSelectAll={handleSelectAll}
                                 dateFormat={dateFormat}
                                 onToggleDateFormat={() => setDateFormat(prev => prev === 'standard' ? 'friendly' : 'standard')}
-                                selectedCategoryInfo={selectedCategoryInfo}
+                                selectedCategoryInfo={isSecondaryMode ? selectedSecondaryInfo : selectedCategoryInfo}
                                 secondaryCategories={secondaryCategories}
                                 secondaryCategoryColor={getSecondaryColor}
                                 onCreateSecondaryCategory={handleCreateSecondaryCategory}
